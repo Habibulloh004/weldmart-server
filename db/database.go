@@ -13,23 +13,28 @@ var DB *gorm.DB
 
 func InitDatabase() {
 	var err error
-	var dbPath string
+	var dbPath string = "database.db"
 
-	// Determine the database path based on the environment
-	if os.Getenv("RENDER") == "true" {
-		// Render environment (persistent disk path)
-		dbPath = "/data/database.db"
-		// Ensure /data directory exists
-		if _, err := os.Stat(filepath.Dir(dbPath)); os.IsNotExist(err) {
-			if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-				log.Fatal("Failed to create /data directory:", err)
-			}
+	// Ensure the directory exists (create if it doesn't)
+	dir := filepath.Dir(dbPath)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatal("Failed to create database directory:", err)
 		}
-	} else {
-		// Local development (relative path in project root)
-		dbPath = "database.db"
 	}
 
+	// Check if the database file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		log.Println("Database file does not exist, creating:", dbPath)
+		// Create an empty database file if it doesn't exist
+		file, err := os.Create(dbPath)
+		if err != nil {
+			log.Fatal("Failed to create database file:", err)
+		}
+		file.Close()
+	}
+
+	// Open the database (it will now exist or have been created)
 	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
