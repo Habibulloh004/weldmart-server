@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 	"log"
 	"os"
+	"path/filepath"
 	"weldmart/models"
 )
 
@@ -18,6 +19,12 @@ func InitDatabase() {
 	if os.Getenv("RENDER") == "true" {
 		// Render environment (persistent disk path)
 		dbPath = "/data/database.db"
+		// Ensure /data directory exists
+		if _, err := os.Stat(filepath.Dir(dbPath)); os.IsNotExist(err) {
+			if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+				log.Fatal("Failed to create /data directory:", err)
+			}
+		}
 	} else {
 		// Local development (relative path in project root)
 		dbPath = "database.db"
