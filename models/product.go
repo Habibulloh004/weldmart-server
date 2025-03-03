@@ -18,4 +18,6 @@ type Product struct {
 	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 	CategoryID  uint      `json:"category_id"`
 	BrandID     uint      `json:"brand_id"`
+	Category    Category  `gorm:"foreignKey:CategoryID" json:"category"`
+	Brand       Brand     `gorm:"foreignKey:BrandID" json:"brand"`
 }

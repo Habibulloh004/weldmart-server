@@ -53,20 +53,20 @@ type OrderResponse struct {
 
 type ProductResponse struct {
 	Products []models.Product `json:"products"`
-	Total    int       `json:"total"`
-	Skip     int       `json:"skip"`
-	Limit    int       `json:"limit"`
+	Total    int              `json:"total"`
+	Skip     int              `json:"skip"`
+	Limit    int              `json:"limit"`
 }
 
 // CategoryResponse struct to shape the API response with full product details
 type CategoryResponse struct {
 	Categories []struct {
-		ID          uint      `json:"id"`
-		Name        string    `json:"name"`
-		Description string    `json:"description"`
-		Image       string    `json:"image"`
-		CreatedAt   time.Time `json:"created_at"`
-		UpdatedAt   time.Time `json:"updated_at"`
+		ID          uint             `json:"id"`
+		Name        string           `json:"name"`
+		Description string           `json:"description"`
+		Image       string           `json:"image"`
+		CreatedAt   time.Time        `json:"created_at"`
+		UpdatedAt   time.Time        `json:"updated_at"`
 		Products    []models.Product `json:"products,omitempty"`
 	} `json:"categories"`
 	Total int `json:"total"`
@@ -74,6 +74,65 @@ type CategoryResponse struct {
 	Limit int `json:"limit"`
 }
 
+type LoginRequest struct {
+	Phone    string `json:"phone" validate:"required"`
+	Password string `json:"password" validate:"required"`
+}
+
+// LoginResponse defines the structure of the login response
+type LoginResponse struct {
+	Message string      `json:"message"`
+	User    models.User `json:"user"` // Full user details
+}
+
+type CategoryWithProductsResponse struct {
+	ID          uint             `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Image       string           `json:"image"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Total       int              `json:"total"` // Total products in this category
+	Skip        int              `json:"skip"`  // Product skip
+	Limit       int              `json:"limit"` // Product limit
+	Products    []models.Product `json:"products"`
+}
+
+type BrandWithProductsResponse struct {
+	ID          uint             `json:"id"`
+	Name        string           `json:"name"`
+	Country     string           `json:"country"`
+	Description string           `json:"description"`
+	Image       string           `json:"image"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Total       int              `json:"total"` // Total products in this brand
+	Skip        int              `json:"skip"`  // Product skip
+	Limit       int              `json:"limit"` // Product limit
+	Products    []models.Product `json:"products"`
+}
+
+type BrandWithProducts struct {
+	ID          uint             `json:"id"`
+	Name        string           `json:"name"`
+	Country     string           `json:"country"`
+	Description string           `json:"description"`
+	Image       string           `json:"image"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Products    []models.Product `json:"products,omitempty"`
+}
+
+type BrandListResponse struct {
+	Brands []BrandWithProducts `json:"brands"`
+	Total  int                 `json:"total"` // Total brands
+	Skip   int                 `json:"skip"`  // Brand skip
+	Limit  int                 `json:"limit"` // Brand limit
+}
+
+type SearchResponse struct {
+    Products []models.Product `json:"products"`
+}
 
 func SetupRoutes(app *fiber.App) {
 	// Image upload route
@@ -81,6 +140,7 @@ func SetupRoutes(app *fiber.App) {
 
 	// User routes
 	api := app.Group("/api")
+	api.Post("/login", loginHandler)
 	users := api.Group("/users")
 	users.Post("/", createUser)
 	users.Get("/", getAllUsers)
@@ -90,6 +150,7 @@ func SetupRoutes(app *fiber.App) {
 
 	// Product routes
 	products := api.Group("/products")
+	products.Get("/search", searchProducts)
 	products.Post("/", createProduct)
 	products.Get("/", getAllProducts)
 	products.Get("/:id", getProduct)
@@ -205,6 +266,46 @@ func uploadImage(c *fiber.Ctx) error {
 	})
 }
 
+func loginHandler(c *fiber.Ctx) error {
+	// Parse request body
+	var req LoginRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot parse JSON",
+		})
+	}
+
+	// Validate required fields
+	if req.Phone == "" || req.Password == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			" 하기error": "Phone and password are required",
+		})
+	}
+
+	// Find user by phone number
+	var user models.User
+	if err := db.DB.Where("phone = ?", req.Phone).First(&user).Error; err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Invalid phone number or password",
+		})
+	}
+
+	// Compare plain text password
+	if user.Password != req.Password {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Invalid phone number or password",
+		})
+	}
+
+	// Successful login
+	response := LoginResponse{
+		Message: "Login successful",
+		User:    user, // Include full user struct (password excluded by json:"-")
+	}
+
+	return c.JSON(response)
+}
+
 // User handlers
 func createUser(c *fiber.Ctx) error {
 	user := new(models.User)
@@ -318,36 +419,104 @@ func createProduct(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(product)
 }
 
+func searchProducts(c *fiber.Ctx) error {
+    query := c.Query("q")
+    if query == "" {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "Query parameter 'q' is required",
+        })
+    }
+
+    var products []models.Product
+
+    // Step 1: Search by Product Name
+    if err := db.DB.Preload("Category").Preload("Brand").
+        Where("name LIKE ?", "%"+query+"%").Find(&products).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to search products",
+        })
+    }
+
+    // If products are found by name, return them
+    if len(products) > 0 {
+        return c.JSON(SearchResponse{Products: products})
+    }
+
+    // Step 2: Search by Category Name
+    var categoryIDs []uint
+    if err := db.DB.Model(&models.Category{}).
+        Where("name LIKE ?", "%"+query+"%").
+        Pluck("id", &categoryIDs).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to search categories",
+        })
+    }
+
+    if len(categoryIDs) > 0 {
+        if err := db.DB.Preload("Category").Preload("Brand").
+            Where("category_id IN ?", categoryIDs).Find(&products).Error; err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "error": "Failed to get products by category",
+            })
+        }
+        // If products are found by category, return them
+        if len(products) > 0 {
+            return c.JSON(SearchResponse{Products: products})
+        }
+    }
+
+    // Step 3: Search by Brand Name
+    var brandIDs []uint
+    if err := db.DB.Model(&models.Brand{}).
+        Where("name LIKE ?", "%"+query+"%").
+        Pluck("id", &brandIDs).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to search brands",
+        })
+    }
+
+    if len(brandIDs) > 0 {
+        if err := db.DB.Preload("Category").Preload("Brand").
+            Where("brand_id IN ?", brandIDs).Find(&products).Error; err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "error": "Failed to get products by brand",
+            })
+        }
+    }
+
+    // Return the products (could be empty if no matches found)
+    return c.JSON(SearchResponse{Products: products})
+}
+
 // GetAllProducts
 func getAllProducts(c *fiber.Ctx) error {
 	var total int64
 	var products []models.Product
 
 	// Get query parameters with error handling
-	limitStr := c.Query("limit") // Get raw string value to check if it exists
-	skipStr := c.Query("skip")   // Get raw string value to check if it exists
+	limitStr := c.Query("limit")
+	skipStr := c.Query("skip")
 
 	var limit, skip int
-	var err error
 
-	// Default values (no limit or skip unless specified)
-	limit = -1 // Use -1 to indicate no limit
+	// Default values
+	limit = -1 // No limit unless specified
 	skip = 0   // Default skip to 0
 
-	// Parse limit if it exists
+	// Parse limit if provided
 	if limitStr != "" {
-		limit = c.QueryInt("limit", 0) // Use 0 as default for parsing, we'll handle logic later
-		if err != nil {
+		limit = c.QueryInt("limit", 0)
+		if limit < 0 {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid limit parameter",
 			})
 		}
 	}
 
-	// Parse skip if it exists
+	// Parse skip if provided
 	if skipStr != "" {
 		skip = c.QueryInt("skip", 0)
-		if err != nil {
+		if skip < 0 {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid skip parameter",
 			})
@@ -361,16 +530,15 @@ func getAllProducts(c *fiber.Ctx) error {
 		})
 	}
 
-	// Query based on the parameters
-	dbQuery := db.DB
+	// Query with preloading of full Category and Brand structs
+	dbQuery := db.DB.Preload("Category").Preload("Brand")
 	if skip > 0 {
 		dbQuery = dbQuery.Offset(skip)
 	}
 	if limit > 0 {
 		dbQuery = dbQuery.Limit(limit)
 	} else {
-		// No limit specified, get all remaining items after skip
-		dbQuery = dbQuery.Limit(int(total)) // Use total as a large limit to get all
+		dbQuery = dbQuery.Limit(int(total)) // Fetch all after skip
 	}
 
 	if err := dbQuery.Find(&products).Error; err != nil {
@@ -395,7 +563,8 @@ func getProduct(c *fiber.Ctx) error {
 	id := c.Params("id")
 	var product models.Product
 
-	if err := db.DB.First(&product, id).Error; err != nil {
+	// Preload full Category and Brand structs
+	if err := db.DB.Preload("Category").Preload("Brand").First(&product, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Product not found",
 		})
@@ -538,12 +707,12 @@ func getAllCategories(c *fiber.Ctx) error {
 	// Prepare response
 	response := CategoryResponse{
 		Categories: make([]struct {
-			ID          uint      `json:"id"`
-			Name        string    `json:"name"`
-			Description string    `json:"description"`
-			Image       string    `json:"image"`
-			CreatedAt   time.Time `json:"created_at"`
-			UpdatedAt   time.Time `json:"updated_at"`
+			ID          uint             `json:"id"`
+			Name        string           `json:"name"`
+			Description string           `json:"description"`
+			Image       string           `json:"image"`
+			CreatedAt   time.Time        `json:"created_at"`
+			UpdatedAt   time.Time        `json:"updated_at"`
 			Products    []models.Product `json:"products,omitempty"`
 		}, len(categories)),
 		Total: int(total),
@@ -554,12 +723,12 @@ func getAllCategories(c *fiber.Ctx) error {
 	// Map categories to response structure
 	for i, category := range categories {
 		response.Categories[i] = struct {
-			ID          uint      `json:"id"`
-			Name        string    `json:"name"`
-			Description string    `json:"description"`
-			Image       string    `json:"image"`
-			CreatedAt   time.Time `json:"created_at"`
-			UpdatedAt   time.Time `json:"updated_at"`
+			ID          uint             `json:"id"`
+			Name        string           `json:"name"`
+			Description string           `json:"description"`
+			Image       string           `json:"image"`
+			CreatedAt   time.Time        `json:"created_at"`
+			UpdatedAt   time.Time        `json:"updated_at"`
 			Products    []models.Product `json:"products,omitempty"`
 		}{
 			ID:          category.ID,
@@ -579,14 +748,79 @@ func getAllCategories(c *fiber.Ctx) error {
 func getCategory(c *fiber.Ctx) error {
 	id := c.Params("id")
 	var category models.Category
+	var totalProducts int64
 
-	if err := db.DB.Preload("Products").First(&category, id).Error; err != nil {
+	// Get query parameters for product pagination
+	productLimitStr := c.Query("product_limit")
+	productSkipStr := c.Query("product_skip")
+
+	var productLimit, productSkip int
+
+	// Default values for product pagination
+	productLimit = -1 // No limit unless specified
+	productSkip = 0   // Default skip to 0
+
+	// Parse product limit
+	if productLimitStr != "" {
+		productLimit = c.QueryInt("product_limit", 0)
+		if productLimit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid product_limit parameter",
+			})
+		}
+	}
+
+	// Parse product skip
+	if productSkipStr != "" {
+		productSkip = c.QueryInt("product_skip", 0)
+		if productSkip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid product_skip parameter",
+			})
+		}
+	}
+
+	// Count total products for this category
+	if err := db.DB.Model(&models.Product{}).Where("category_id = ?", id).Count(&totalProducts).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count products",
+		})
+	}
+
+	// Query category with paginated products
+	productQuery := db.DB.Model(&models.Product{}).Where("category_id = ?", id)
+	if productSkip > 0 {
+		productQuery = productQuery.Offset(productSkip)
+	}
+	if productLimit > 0 {
+		productQuery = productQuery.Limit(productLimit)
+	} else {
+		productQuery = productQuery.Limit(int(totalProducts)) // Fetch all if no limit
+	}
+
+	if err := db.DB.Preload("Products", func(db *gorm.DB) *gorm.DB {
+		return productQuery
+	}).First(&category, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Category not found",
 		})
 	}
 
-	return c.JSON(category)
+	// Prepare response
+	response := CategoryWithProductsResponse{
+		ID:          category.ID,
+		Name:        category.Name,
+		Description: category.Description,
+		Image:       category.Image,
+		CreatedAt:   category.CreatedAt,
+		UpdatedAt:   category.UpdatedAt,
+		Total:       int(totalProducts),
+		Skip:        productSkip,
+		Limit:       productLimit,
+		Products:    category.Products,
+	}
+
+	return c.JSON(response)
 }
 
 // UpdateCategory
@@ -663,27 +897,165 @@ func createBrand(c *fiber.Ctx) error {
 }
 
 func getAllBrands(c *fiber.Ctx) error {
+	var total int64
 	var brands []models.Brand
-	if err := db.DB.Find(&brands).Error; err != nil {
+
+	// Get query parameters for brand pagination only
+	limitStr := c.Query("limit")
+	skipStr := c.Query("skip")
+
+	var limit, skip int
+
+	// Default values for brand pagination
+	limit = -1 // No limit unless specified
+	skip = 0   // Default skip to 0
+
+	// Parse brand limit
+	if limitStr != "" {
+		limit = c.QueryInt("limit", 0)
+		if limit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid limit parameter",
+			})
+		}
+	}
+
+	// Parse brand skip
+	if skipStr != "" {
+		skip = c.QueryInt("skip", 0)
+		if skip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid skip parameter",
+			})
+		}
+	}
+
+	// Count total brands
+	if err := db.DB.Model(&models.Brand{}).Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count brands",
+		})
+	}
+
+	// Query brands with pagination (only for brands)
+	dbQuery := db.DB.Preload("Products") // Fetch all products without pagination
+	if skip > 0 {
+		dbQuery = dbQuery.Offset(skip)
+	}
+	if limit > 0 {
+		dbQuery = dbQuery.Limit(limit)
+	} else {
+		dbQuery = dbQuery.Limit(int(total)) // Fetch all brands after skip
+	}
+
+	if err := dbQuery.Find(&brands).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to get brands",
 		})
 	}
 
-	return c.JSON(brands)
+	// Prepare response
+	response := BrandListResponse{
+		Brands: make([]BrandWithProducts, len(brands)),
+		Total:  int(total),
+		Skip:   skip,
+		Limit:  limit,
+	}
+
+	// Map brands to response structure
+	for i, brand := range brands {
+		response.Brands[i] = BrandWithProducts{
+			ID:          brand.ID,
+			Name:        brand.Name,
+			Country:     brand.Country,
+			Description: brand.Description,
+			Image:       brand.Image,
+			CreatedAt:   brand.CreatedAt,
+			UpdatedAt:   brand.UpdatedAt,
+			Products:    brand.Products, // All products for this brand
+		}
+	}
+
+	return c.JSON(response)
 }
 
 func getBrand(c *fiber.Ctx) error {
 	id := c.Params("id")
 	var brand models.Brand
+	var totalProducts int64
 
-	if err := db.DB.Preload("Products").First(&brand, id).Error; err != nil {
+	// Get query parameters for product pagination
+	productLimitStr := c.Query("product_limit")
+	productSkipStr := c.Query("product_skip")
+
+	var productLimit, productSkip int
+
+	// Default values for product pagination
+	productLimit = -1 // No limit unless specified
+	productSkip = 0   // Default skip to 0
+
+	// Parse product limit
+	if productLimitStr != "" {
+		productLimit = c.QueryInt("product_limit", 0)
+		if productLimit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid product_limit parameter",
+			})
+		}
+	}
+
+	// Parse product skip
+	if productSkipStr != "" {
+		productSkip = c.QueryInt("product_skip", 0)
+		if productSkip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid product_skip parameter",
+			})
+		}
+	}
+
+	// Count total products for this brand
+	if err := db.DB.Model(&models.Product{}).Where("brand_id = ?", id).Count(&totalProducts).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count products",
+		})
+	}
+
+	// Query brand with paginated products
+	productQuery := db.DB.Model(&models.Product{}).Where("brand_id = ?", id)
+	if productSkip > 0 {
+		productQuery = productQuery.Offset(productSkip)
+	}
+	if productLimit > 0 {
+		productQuery = productQuery.Limit(productLimit)
+	} else {
+		productQuery = productQuery.Limit(int(totalProducts)) // Fetch all if no limit
+	}
+
+	if err := db.DB.Preload("Products", func(db *gorm.DB) *gorm.DB {
+		return productQuery
+	}).First(&brand, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Brand not found",
 		})
 	}
 
-	return c.JSON(brand)
+	// Prepare response
+	response := BrandWithProductsResponse{
+		ID:          brand.ID,
+		Name:        brand.Name,
+		Country:     brand.Country,
+		Description: brand.Description,
+		Image:       brand.Image,
+		CreatedAt:   brand.CreatedAt,
+		UpdatedAt:   brand.UpdatedAt,
+		Total:       int(totalProducts),
+		Skip:        productSkip,
+		Limit:       productLimit,
+		Products:    brand.Products,
+	}
+
+	return c.JSON(response)
 }
 
 func updateBrand(c *fiber.Ctx) error {

@@ -1,26 +1,23 @@
-// main.go
 package main
 
 import (
-	"log"
-	"os"
-
-	"weldmart/db"
-	"weldmart/routes"
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"log"
+	"os"
+	"weldmart/db"
+	"weldmart/routes"
 )
-
-
 
 func main() {
 	// Initialize database
 	db.InitDatabase()
-	// Create uploads directory if it doesn't exist
-	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
-		os.Mkdir("uploads", 0755)
+
+	// Create uploads directory on the persistent disk if it doesn't exist
+	uploadsDir := "/uploads"
+	if _, err := os.Stat(uploadsDir); os.IsNotExist(err) {
+		os.Mkdir(uploadsDir, 0755)
 	}
 
 	// Create Fiber app
@@ -30,8 +27,8 @@ func main() {
 	app.Use(logger.New())
 	app.Use(cors.New())
 
-	// Serve static files
-	app.Static("/uploads", "./uploads")
+	// Serve static files from the persistent disk
+	app.Static("/uploads", uploadsDir)
 
 	// Setup routes
 	routes.SetupRoutes(app)
