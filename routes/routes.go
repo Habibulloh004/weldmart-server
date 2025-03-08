@@ -2,7 +2,10 @@ package routes
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"weldmart/db"
@@ -10,10 +13,18 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/google/uuid"
+	socketio "github.com/googollee/go-socket.io"
+	"github.com/googollee/go-socket.io/engineio"
+	"github.com/googollee/go-socket.io/engineio/transport"
+	"github.com/googollee/go-socket.io/engineio/transport/polling"
+	"github.com/googollee/go-socket.io/engineio/transport/websocket"
 	"gorm.io/gorm"
 )
 
+// Server is the Socket.IO server instance, exported for use in main.go
+var Server *socketio.Server
 var validate = validator.New()
 
 type OrderItemResponse struct {
@@ -131,10 +142,60 @@ type BrandListResponse struct {
 }
 
 type SearchResponse struct {
-    Products []models.Product `json:"products"`
+	Products []models.Product `json:"products"`
 }
 
 func SetupRoutes(app *fiber.App) {
+	Server = socketio.NewServer(&engineio.Options{
+		Transports: []transport.Transport{
+			polling.Default,
+			websocket.Default,
+		},
+	})
+
+	// Handle Socket.IO connection
+	Server.OnConnect("/", func(s socketio.Conn) error {
+		s.SetContext("")
+		log.Println("Client connected:", s.ID())
+		return nil
+	})
+
+	// Handle incoming messages from clients
+	Server.OnEvent("/", "message", func(s socketio.Conn, msg interface{}) {
+		// Log the received message type and data for debugging
+		switch v := msg.(type) {
+		case string:
+			log.Printf("Received string message from %s: %s", s.ID(), v)
+		case []interface{}:
+			log.Printf("Received array message from %s: %v", s.ID(), v)
+		case map[string]interface{}:
+			log.Printf("Received object message from %s: %v", s.ID(), v)
+		default:
+			log.Printf("Received unsupported message type from %s: %v", s.ID(), v)
+			return
+		}
+
+		// Broadcast the raw message to all connected clients (preserving its type)
+		Server.BroadcastToNamespace("/", "broadcast", msg)
+	})
+
+	// Handle client disconnection
+	Server.OnDisconnect("/", func(s socketio.Conn, reason string) {
+		log.Println("Client disconnected:", s.ID(), "Reason:", reason)
+	})
+
+	// Handle Socket.IO errors
+	Server.OnError("/", func(s socketio.Conn, e error) {
+		log.Println("Socket.IO error:", e)
+	})
+
+	// Mount Socket.IO on Fiber
+	app.Get("/socket.io/*", adaptor.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Server.ServeHTTP(w, r)
+	})))
+	app.Post("/socket.io/*", adaptor.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Server.ServeHTTP(w, r)
+	})))
 	// Image upload route
 	app.Post("/upload", uploadImage)
 
@@ -315,7 +376,35 @@ func createUser(c *fiber.Ctx) error {
 		})
 	}
 
+	// Validate phone format
+	phoneRegex := regexp.MustCompile(`^\d{10,12}$`) // Adjusted for your 12-digit example
+	if !phoneRegex.MatchString(user.Phone) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Phone number must be 10-12 digits",
+		})
+	}
+
+	// Log phone check time
+	var existingUser models.User
+	if err := db.DB.Where("phone = ?", user.Phone).First(&existingUser).Error; err != nil {
+		if err != gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to check phone number",
+			})
+		}
+	} else {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": "Phone number already in use",
+		})
+	}
+
+	// Log insert time
 	if err := db.DB.Create(&user).Error; err != nil {
+		if gorm.ErrDuplicatedKey == err {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": "Phone number already in use",
+			})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create user",
 		})
@@ -326,8 +415,14 @@ func createUser(c *fiber.Ctx) error {
 
 func getAllUsers(c *fiber.Ctx) error {
 	var users []models.User
-	// Preload Orders for all users
-	if err := db.DB.Preload("Orders").Find(&users).Error; err != nil {
+	// Preload Orders, OrderItems, and Product (with Category and Brand)
+	if err := db.DB.
+		Preload("Orders.OrderItems.Product.Category").
+		Preload("Orders.OrderItems.Product.Brand").
+		Preload("Orders.OrderItems.Product").
+		Preload("Orders.OrderItems").
+		Preload("Orders").
+		Find(&users).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to get users",
 		})
@@ -340,8 +435,14 @@ func getUser(c *fiber.Ctx) error {
 	id := c.Params("id")
 	var user models.User
 
-	// Preload Orders for the single user
-	if err := db.DB.Preload("Orders").First(&user, id).Error; err != nil {
+	// Preload Orders, OrderItems, and Product (with Category and Brand)
+	if err := db.DB.
+		Preload("Orders.OrderItems.Product.Category").
+		Preload("Orders.OrderItems.Product.Brand").
+		Preload("Orders.OrderItems.Product").
+		Preload("Orders.OrderItems").
+		Preload("Orders").
+		First(&user, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "User not found",
 		})
@@ -360,15 +461,45 @@ func updateUser(c *fiber.Ctx) error {
 		})
 	}
 
-	// Check if the user exists
-	if err := db.DB.First(&models.User{}, id).Error; err != nil {
+	var existingUser models.User
+	if err := db.DB.First(&existingUser, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "User not found",
 		})
 	}
 
-	// Update user
-	db.DB.Model(&models.User{}).Where("id = ?", id).Updates(user)
+	// Validate phone number if provided
+	if user.Phone != "" {
+		phoneRegex := regexp.MustCompile(`^\d{12}$`)
+		if !phoneRegex.MatchString(user.Phone) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Phone number must be 12 digits",
+			})
+		}
+		var conflictingUser models.User
+		if err := db.DB.Where("phone = ? AND id != ?", user.Phone, id).First(&conflictingUser).Error; err != nil {
+			if err != gorm.ErrRecordNotFound {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": "Failed to check phone number",
+				})
+			}
+		} else {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": "Phone number already in use by another user",
+			})
+		}
+	}
+
+	if err := db.DB.Model(&existingUser).Updates(user).Error; err != nil {
+		if gorm.ErrDuplicatedKey == err {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": "Phone number already in use",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update user",
+		})
+	}
 
 	return c.JSON(fiber.Map{
 		"success": true,
@@ -420,72 +551,72 @@ func createProduct(c *fiber.Ctx) error {
 }
 
 func searchProducts(c *fiber.Ctx) error {
-    query := c.Query("q")
-    if query == "" {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Query parameter 'q' is required",
-        })
-    }
+	query := c.Query("q")
+	if query == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Query parameter 'q' is required",
+		})
+	}
 
-    var products []models.Product
+	var products []models.Product
 
-    // Step 1: Search by Product Name
-    if err := db.DB.Preload("Category").Preload("Brand").
-        Where("name LIKE ?", "%"+query+"%").Find(&products).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to search products",
-        })
-    }
+	// Step 1: Search by Product Name
+	if err := db.DB.Preload("Category").Preload("Brand").
+		Where("name LIKE ?", "%"+query+"%").Find(&products).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to search products",
+		})
+	}
 
-    // If products are found by name, return them
-    if len(products) > 0 {
-        return c.JSON(SearchResponse{Products: products})
-    }
+	// If products are found by name, return them
+	if len(products) > 0 {
+		return c.JSON(SearchResponse{Products: products})
+	}
 
-    // Step 2: Search by Category Name
-    var categoryIDs []uint
-    if err := db.DB.Model(&models.Category{}).
-        Where("name LIKE ?", "%"+query+"%").
-        Pluck("id", &categoryIDs).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to search categories",
-        })
-    }
+	// Step 2: Search by Category Name
+	var categoryIDs []uint
+	if err := db.DB.Model(&models.Category{}).
+		Where("name LIKE ?", "%"+query+"%").
+		Pluck("id", &categoryIDs).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to search categories",
+		})
+	}
 
-    if len(categoryIDs) > 0 {
-        if err := db.DB.Preload("Category").Preload("Brand").
-            Where("category_id IN ?", categoryIDs).Find(&products).Error; err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "error": "Failed to get products by category",
-            })
-        }
-        // If products are found by category, return them
-        if len(products) > 0 {
-            return c.JSON(SearchResponse{Products: products})
-        }
-    }
+	if len(categoryIDs) > 0 {
+		if err := db.DB.Preload("Category").Preload("Brand").
+			Where("category_id IN ?", categoryIDs).Find(&products).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to get products by category",
+			})
+		}
+		// If products are found by category, return them
+		if len(products) > 0 {
+			return c.JSON(SearchResponse{Products: products})
+		}
+	}
 
-    // Step 3: Search by Brand Name
-    var brandIDs []uint
-    if err := db.DB.Model(&models.Brand{}).
-        Where("name LIKE ?", "%"+query+"%").
-        Pluck("id", &brandIDs).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to search brands",
-        })
-    }
+	// Step 3: Search by Brand Name
+	var brandIDs []uint
+	if err := db.DB.Model(&models.Brand{}).
+		Where("name LIKE ?", "%"+query+"%").
+		Pluck("id", &brandIDs).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to search brands",
+		})
+	}
 
-    if len(brandIDs) > 0 {
-        if err := db.DB.Preload("Category").Preload("Brand").
-            Where("brand_id IN ?", brandIDs).Find(&products).Error; err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "error": "Failed to get products by brand",
-            })
-        }
-    }
+	if len(brandIDs) > 0 {
+		if err := db.DB.Preload("Category").Preload("Brand").
+			Where("brand_id IN ?", brandIDs).Find(&products).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to get products by brand",
+			})
+		}
+	}
 
-    // Return the products (could be empty if no matches found)
-    return c.JSON(SearchResponse{Products: products})
+	// Return the products (could be empty if no matches found)
+	return c.JSON(SearchResponse{Products: products})
 }
 
 // GetAllProducts
@@ -496,6 +627,8 @@ func getAllProducts(c *fiber.Ctx) error {
 	// Get query parameters with error handling
 	limitStr := c.Query("limit")
 	skipStr := c.Query("skip")
+	categoryID := c.Query("category_id")
+	brandID := c.Query("brand_id") // New query parameter for brand_id
 
 	var limit, skip int
 
@@ -523,15 +656,25 @@ func getAllProducts(c *fiber.Ctx) error {
 		}
 	}
 
-	// Count total products
-	if err := db.DB.Model(&models.Product{}).Count(&total).Error; err != nil {
+	// Base query with preloading
+	dbQuery := db.DB.Preload("Category").Preload("Brand")
+
+	// Apply filters if provided
+	if categoryID != "" {
+		dbQuery = dbQuery.Where("category_id = ?", categoryID)
+	}
+	if brandID != "" {
+		dbQuery = dbQuery.Where("brand_id = ?", brandID)
+	}
+
+	// Count total products (filtered by category_id and/or brand_id if applicable)
+	if err := dbQuery.Model(&models.Product{}).Count(&total).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to count products",
 		})
 	}
 
-	// Query with preloading of full Category and Brand structs
-	dbQuery := db.DB.Preload("Category").Preload("Brand")
+	// Apply pagination
 	if skip > 0 {
 		dbQuery = dbQuery.Offset(skip)
 	}
@@ -541,6 +684,7 @@ func getAllProducts(c *fiber.Ctx) error {
 		dbQuery = dbQuery.Limit(int(total)) // Fetch all after skip
 	}
 
+	// Fetch products
 	if err := dbQuery.Find(&products).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to get products",
@@ -1369,6 +1513,26 @@ func createRassika(c *fiber.Ctx) error {
 		})
 	}
 
+	if rassika.Email == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Email is required",
+		})
+	}
+
+	if rassika.UserID != nil {
+		var user models.User
+		if err := db.DB.First(&user, *rassika.UserID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error": "Provided user_id does not exist",
+				})
+			}
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to verify user_id",
+			})
+		}
+	}
+
 	if err := db.DB.Create(&rassika).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create rassika",
@@ -1395,7 +1559,8 @@ func getRassika(c *fiber.Ctx) error {
 	id := c.Params("id")
 	var rassika models.Rassika
 
-	if err := db.DB.Preload("Users").First(&rassika, id).Error; err != nil {
+	// Remove Preload since there's no Users relation
+	if err := db.DB.First(&rassika, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Rassika not found",
 		})
@@ -1415,14 +1580,34 @@ func updateRassika(c *fiber.Ctx) error {
 	}
 
 	// Check if the rassika exists
-	if err := db.DB.First(&models.Rassika{}, id).Error; err != nil {
+	var existingRassika models.Rassika
+	if err := db.DB.First(&existingRassika, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Rassika not found",
 		})
 	}
 
+	// Check if UserID is provided and valid
+	if rassika.UserID != nil {
+		var user models.User
+		if err := db.DB.First(&user, *rassika.UserID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error": "Provided user_id does not exist",
+				})
+			}
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to verify user_id",
+			})
+		}
+	}
+
 	// Update rassika
-	db.DB.Model(&models.Rassika{}).Where("id = ?", id).Updates(rassika)
+	if err := db.DB.Model(&existingRassika).Updates(rassika).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update rassika",
+		})
+	}
 
 	return c.JSON(fiber.Map{
 		"success": true,

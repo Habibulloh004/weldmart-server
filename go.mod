@@ -1,6 +1,6 @@
 module weldmart
 
-go 1.22.0
+go 1.22.2
 
 toolchain go1.23.6
 
@@ -8,6 +8,7 @@ require (
 	github.com/go-playground/validator/v10 v10.25.0
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/google/uuid v1.6.0
+	github.com/googollee/go-socket.io v1.7.0
 	gorm.io/driver/sqlite v1.5.4
 	gorm.io/gorm v1.25.5
 )
@@ -17,6 +18,9 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/gofrs/uuid v4.0.0+incompatible // indirect
+	github.com/gomodule/redigo v1.8.4 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect

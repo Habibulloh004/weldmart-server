@@ -7,5 +7,5 @@ type Rassika struct {
 	Email     string    `json:"email" validate:"required"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	UserID    uint      `json:"user_id"`
+	UserID    *uint     `json:"user_id,omitempty" gorm:"default:null"`
 }
