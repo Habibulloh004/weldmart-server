@@ -45,6 +45,6 @@ func InitDatabase() {
 	DB.AutoMigrate(
 		&models.User{}, &models.Product{}, &models.Category{}, &models.Brand{},
 		&models.Banner{}, &models.News{}, &models.Achievement{}, &models.Rassika{},
-		&models.Order{}, &models.OrderItem{}, &models.HRassika{},
+		&models.Order{}, &models.OrderItem{}, &models.HRassika{}, &models.Statistics{},
 	)
 }

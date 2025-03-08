@@ -209,6 +209,11 @@ func SetupRoutes(app *fiber.App) {
 	users.Put("/:id", updateUser)
 	users.Delete("/:id", deleteUser)
 
+	stats := api.Group("/statistics")
+    stats.Get("/", getStatistics)
+	stats.Post("/", createStatistics)
+    stats.Put("/", updateStatistics)
+
 	// Product routes
 	products := api.Group("/products")
 	products.Get("/search", searchProducts)
@@ -365,6 +370,119 @@ func loginHandler(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(response)
+}
+
+func getStatistics(c *fiber.Ctx) error {
+    var stats models.Statistics
+    if err := db.DB.First(&stats, 1).Error; err != nil {
+        if err == gorm.ErrRecordNotFound {
+            return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+                "error": "Statistics record not found",
+            })
+        }
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to retrieve statistics",
+        })
+    }
+    return c.JSON(stats)
+}
+
+func createStatistics(c *fiber.Ctx) error {
+    var stats models.Statistics
+    // Check if the record exists (ID=1)
+    if err := db.DB.First(&stats, 1).Error; err != nil {
+        if err != gorm.ErrRecordNotFound {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "error": "Failed to check statistics record",
+            })
+        }
+        // If not found, create the record
+        var newStats models.Statistics
+        if err := c.BodyParser(&newStats); err != nil {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+                "error": "Failed to parse request body",
+            })
+        }
+
+        // Validate the incoming data
+        if err := validate.Struct(&newStats); err != nil {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+                "error": err.Error(),
+            })
+        }
+
+        // Create the record
+        if err := db.DB.Create(&newStats).Error; err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "error": "Failed to create statistics",
+            })
+        }
+
+        return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+            "success": true,
+            "message": "Statistics created successfully",
+        })
+    }
+
+    // If the record exists, update it instead
+    var updateData models.Statistics
+    if err := c.BodyParser(&updateData); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "Failed to parse request body",
+        })
+    }
+
+    // Validate the incoming data
+    if err := validate.Struct(&updateData); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    }
+
+    // Update the existing record
+    db.DB.Model(&stats).Updates(updateData)
+
+    return c.JSON(fiber.Map{
+        "success": true,
+        "message": "Statistics updated successfully (record already existed)",
+    })
+}
+
+func updateStatistics(c *fiber.Ctx) error {
+    var stats models.Statistics
+    if err := db.DB.First(&stats, 1).Error; err != nil {
+        if err == gorm.ErrRecordNotFound {
+            return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+                "error": "Statistics record not found",
+            })
+        }
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to retrieve statistics",
+        })
+    }
+
+    // Parse the incoming update data
+    var updateData models.Statistics
+    if err := c.BodyParser(&updateData); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "Failed to parse request body",
+        })
+    }
+
+    // Validate the incoming data
+    if err := validate.Struct(&updateData); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    }
+
+    // Update achievement (single record with ID=1)
+    db.DB.Model(&stats).Updates(updateData)
+
+    return c.JSON(fiber.Map{
+        "success": true,
+        "message": "Statistics updated successfully",
+    })
 }
 
 // User handlers
