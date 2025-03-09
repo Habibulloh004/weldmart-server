@@ -10,6 +10,7 @@ type Order struct {
 	Bonus        float64     `json:"bonus"`
 	UserID       uint        `json:"user_id"`
 	OrderType    string      `gorm:"column:order_type" json:"order_type"`
+	Status       string      `json:"status"`
 	Phone        string      `json:"phone,omitempty" gorm:"default:null"`
 	Name         string      `json:"name,omitempty" gorm:"default:null"`
 	Organization string      `json:"organization,omitempty" gorm:"default:null"`

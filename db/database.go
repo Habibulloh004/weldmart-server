@@ -1,12 +1,13 @@
 package db
 
 import (
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 	"log"
 	"os"
 	"path/filepath"
 	"weldmart/models"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 var DB *gorm.DB
@@ -45,6 +46,6 @@ func InitDatabase() {
 	DB.AutoMigrate(
 		&models.User{}, &models.Product{}, &models.Category{}, &models.Brand{},
 		&models.Banner{}, &models.News{}, &models.Achievement{}, &models.Rassika{},
-		&models.Order{}, &models.OrderItem{}, &models.HRassika{}, &models.Statistics{},
+		&models.Order{}, &models.OrderItem{}, &models.HRassika{}, &models.Statistics{}, &models.Admin{},
 	)
 }

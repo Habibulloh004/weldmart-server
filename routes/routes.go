@@ -201,7 +201,14 @@ func SetupRoutes(app *fiber.App) {
 
 	// User routes
 	api := app.Group("/api")
+
+	admin := api.Group("/admin")
+	admin.Post("/", createAdmin)
+	admin.Put("/", updateAdmin)
+	admin.Get("/", getAdmin)
+
 	api.Post("/login", loginHandler)
+
 	users := api.Group("/users")
 	users.Post("/", createUser)
 	users.Get("/", getAllUsers)
@@ -210,9 +217,9 @@ func SetupRoutes(app *fiber.App) {
 	users.Delete("/:id", deleteUser)
 
 	stats := api.Group("/statistics")
-    stats.Get("/", getStatistics)
+	stats.Get("/", getStatistics)
 	stats.Post("/", createStatistics)
-    stats.Put("/", updateStatistics)
+	stats.Put("/", updateStatistics)
 
 	// Product routes
 	products := api.Group("/products")
@@ -332,6 +339,80 @@ func uploadImage(c *fiber.Ctx) error {
 	})
 }
 
+func createAdmin(c *fiber.Ctx) error {
+	var existingAdmin models.Admin
+	if err := db.DB.First(&existingAdmin).Error; err == nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "Admin already exists. Use PUT to update",
+		})
+	} else if err != gorm.ErrRecordNotFound {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Database error checking admin existence",
+		})
+	}
+
+	admin := new(models.Admin)
+	if err := c.BodyParser(admin); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot parse JSON",
+		})
+	}
+
+	if result := db.DB.Create(admin); result.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to create admin",
+		})
+	}
+
+	return c.JSON(admin)
+}
+
+func updateAdmin(c *fiber.Ctx) error {
+	var existingAdmin models.Admin
+	if err := db.DB.First(&existingAdmin).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "No admin exists. Use POST to create",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Database error checking admin existence",
+		})
+	}
+
+	admin := new(models.Admin)
+	if err := c.BodyParser(admin); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot parse JSON",
+		})
+	}
+
+	admin.ID = 1
+	if result := db.DB.Model(&models.Admin{}).Where("id = ?", 1).Updates(admin); result.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update admin",
+		})
+	}
+
+	return c.JSON(admin)
+}
+
+func getAdmin(c *fiber.Ctx) error {
+	var admin models.Admin
+	if err := db.DB.First(&admin).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "No admin exists",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch admin",
+		})
+	}
+
+	return c.JSON(admin)
+}
+
 func loginHandler(c *fiber.Ctx) error {
 	// Parse request body
 	var req LoginRequest
@@ -373,116 +454,116 @@ func loginHandler(c *fiber.Ctx) error {
 }
 
 func getStatistics(c *fiber.Ctx) error {
-    var stats models.Statistics
-    if err := db.DB.First(&stats, 1).Error; err != nil {
-        if err == gorm.ErrRecordNotFound {
-            return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-                "error": "Statistics record not found",
-            })
-        }
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to retrieve statistics",
-        })
-    }
-    return c.JSON(stats)
+	var stats models.Statistics
+	if err := db.DB.First(&stats, 1).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Statistics record not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to retrieve statistics",
+		})
+	}
+	return c.JSON(stats)
 }
 
 func createStatistics(c *fiber.Ctx) error {
-    var stats models.Statistics
-    // Check if the record exists (ID=1)
-    if err := db.DB.First(&stats, 1).Error; err != nil {
-        if err != gorm.ErrRecordNotFound {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "error": "Failed to check statistics record",
-            })
-        }
-        // If not found, create the record
-        var newStats models.Statistics
-        if err := c.BodyParser(&newStats); err != nil {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Failed to parse request body",
-            })
-        }
+	var stats models.Statistics
+	// Check if the record exists (ID=1)
+	if err := db.DB.First(&stats, 1).Error; err != nil {
+		if err != gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to check statistics record",
+			})
+		}
+		// If not found, create the record
+		var newStats models.Statistics
+		if err := c.BodyParser(&newStats); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Failed to parse request body",
+			})
+		}
 
-        // Validate the incoming data
-        if err := validate.Struct(&newStats); err != nil {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": err.Error(),
-            })
-        }
+		// Validate the incoming data
+		if err := validate.Struct(&newStats); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
 
-        // Create the record
-        if err := db.DB.Create(&newStats).Error; err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "error": "Failed to create statistics",
-            })
-        }
+		// Create the record
+		if err := db.DB.Create(&newStats).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to create statistics",
+			})
+		}
 
-        return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-            "success": true,
-            "message": "Statistics created successfully",
-        })
-    }
+		return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+			"success": true,
+			"message": "Statistics created successfully",
+		})
+	}
 
-    // If the record exists, update it instead
-    var updateData models.Statistics
-    if err := c.BodyParser(&updateData); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Failed to parse request body",
-        })
-    }
+	// If the record exists, update it instead
+	var updateData models.Statistics
+	if err := c.BodyParser(&updateData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
 
-    // Validate the incoming data
-    if err := validate.Struct(&updateData); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": err.Error(),
-        })
-    }
+	// Validate the incoming data
+	if err := validate.Struct(&updateData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
 
-    // Update the existing record
-    db.DB.Model(&stats).Updates(updateData)
+	// Update the existing record
+	db.DB.Model(&stats).Updates(updateData)
 
-    return c.JSON(fiber.Map{
-        "success": true,
-        "message": "Statistics updated successfully (record already existed)",
-    })
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Statistics updated successfully (record already existed)",
+	})
 }
 
 func updateStatistics(c *fiber.Ctx) error {
-    var stats models.Statistics
-    if err := db.DB.First(&stats, 1).Error; err != nil {
-        if err == gorm.ErrRecordNotFound {
-            return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-                "error": "Statistics record not found",
-            })
-        }
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to retrieve statistics",
-        })
-    }
+	var stats models.Statistics
+	if err := db.DB.First(&stats, 1).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Statistics record not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to retrieve statistics",
+		})
+	}
 
-    // Parse the incoming update data
-    var updateData models.Statistics
-    if err := c.BodyParser(&updateData); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Failed to parse request body",
-        })
-    }
+	// Parse the incoming update data
+	var updateData models.Statistics
+	if err := c.BodyParser(&updateData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
 
-    // Validate the incoming data
-    if err := validate.Struct(&updateData); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": err.Error(),
-        })
-    }
+	// Validate the incoming data
+	if err := validate.Struct(&updateData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
 
-    // Update achievement (single record with ID=1)
-    db.DB.Model(&stats).Updates(updateData)
+	// Update achievement (single record with ID=1)
+	db.DB.Model(&stats).Updates(updateData)
 
-    return c.JSON(fiber.Map{
-        "success": true,
-        "message": "Statistics updated successfully",
-    })
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Statistics updated successfully",
+	})
 }
 
 // User handlers
@@ -495,10 +576,10 @@ func createUser(c *fiber.Ctx) error {
 	}
 
 	// Validate phone format
-	phoneRegex := regexp.MustCompile(`^\d{10,12}$`) // Adjusted for your 12-digit example
+	phoneRegex := regexp.MustCompile(`^\+\d{12}$`) // Adjusted for your 12-digit example
 	if !phoneRegex.MatchString(user.Phone) {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Phone number must be 10-12 digits",
+			"error": "Phone number must be 10-13 digits",
 		})
 	}
 
@@ -588,10 +669,10 @@ func updateUser(c *fiber.Ctx) error {
 
 	// Validate phone number if provided
 	if user.Phone != "" {
-		phoneRegex := regexp.MustCompile(`^\d{12}$`)
+		phoneRegex := regexp.MustCompile(`^\+\d{12}$`)
 		if !phoneRegex.MatchString(user.Phone) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Phone number must be 12 digits",
+				"error": "Phone number must be 13 digits",
 			})
 		}
 		var conflictingUser models.User
