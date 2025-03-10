@@ -1989,7 +1989,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 	type IndividualOrderRequest struct {
 		Price      float64 `json:"price" validate:"required,gte=0"`
 		Bonus      float64 `json:"bonus" validate:"gte=0"`
-		UserID     uint    `json:"user_id" validate:"required"`
+		UserID     uint    `json:"user_id"`
 		Status     string  `json:"status" validate:"required"`
 		Phone      string  `json:"phone" validate:"required"`
 		Name       string  `json:"name" validate:"required"`
@@ -2013,12 +2013,12 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		})
 	}
 
-	var user models.User
-	if err := db.DB.First(&user, requestData.UserID).Error; err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "User not found",
-		})
-	}
+	// var user models.User
+	// if err := db.DB.First(&user, requestData.UserID).Error; err != nil {
+	// 	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"error": "User not found",
+	// 	})
+	// }
 
 	order := models.Order{
 		Price:     requestData.Price,
@@ -2154,7 +2154,7 @@ func createLegalOrder(c *fiber.Ctx) error {
 	type LegalOrderRequest struct {
 		Price        float64 `json:"price" validate:"required,gte=0"`
 		Bonus        float64 `json:"bonus" validate:"gte=0"`
-		UserID       uint    `json:"user_id" validate:"required"`
+		UserID       uint    `json:"user_id"`
 		Status       string  `json:"status" validate:"required"`
 		Organization string  `json:"organization" validate:"required"`
 		INN          string  `json:"inn" validate:"required"`
@@ -2179,12 +2179,12 @@ func createLegalOrder(c *fiber.Ctx) error {
 		})
 	}
 
-	var user models.User
-	if err := db.DB.First(&user, requestData.UserID).Error; err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "User not found",
-		})
-	}
+	// var user models.User
+	// if err := db.DB.First(&user, requestData.UserID).Error; err != nil {
+	// 	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"error": "User not found",
+	// 	})
+	// }
 
 	order := models.Order{
 		Price:        requestData.Price,
