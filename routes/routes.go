@@ -52,6 +52,7 @@ type OrderResponse struct {
 	Bonus        float64             `json:"bonus"`
 	UserID       uint                `json:"user_id"`
 	OrderType    string              `json:"order_type"`
+	Status       string              `json:"status"`
 	Phone        string              `json:"phone,omitempty"`
 	Name         string              `json:"name,omitempty"`
 	Organization string              `json:"organization,omitempty"`
@@ -1988,6 +1989,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Price      float64 `json:"price" validate:"required,gte=0"`
 		Bonus      float64 `json:"bonus" validate:"gte=0"`
 		UserID     uint    `json:"user_id" validate:"required"`
+		Status     string  `json:"status" validate:"required"`
 		Phone      string  `json:"phone" validate:"required"`
 		Name       string  `json:"name" validate:"required"`
 		OrderItems []struct {
@@ -2021,6 +2023,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Price:     requestData.Price,
 		Bonus:     requestData.Bonus,
 		UserID:    requestData.UserID,
+		Status:    requestData.Status,
 		OrderType: "individual",
 		Phone:     requestData.Phone,
 		Name:      requestData.Name,
@@ -2114,6 +2117,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Price:     fullOrder.Price,
 		Bonus:     fullOrder.Bonus,
 		UserID:    fullOrder.UserID,
+		Status:    fullOrder.Status,
 		OrderType: fullOrder.OrderType,
 		Phone:     fullOrder.Phone,
 		Name:      fullOrder.Name,
@@ -2150,6 +2154,7 @@ func createLegalOrder(c *fiber.Ctx) error {
 		Price        float64 `json:"price" validate:"required,gte=0"`
 		Bonus        float64 `json:"bonus" validate:"gte=0"`
 		UserID       uint    `json:"user_id" validate:"required"`
+		Status       string  `json:"status" validate:"required"`
 		Organization string  `json:"organization" validate:"required"`
 		INN          string  `json:"inn" validate:"required"`
 		Comment      string  `json:"comment"`
@@ -2184,6 +2189,7 @@ func createLegalOrder(c *fiber.Ctx) error {
 		Price:        requestData.Price,
 		Bonus:        requestData.Bonus,
 		UserID:       requestData.UserID,
+		Status:       requestData.Status,
 		OrderType:    "legal",
 		Organization: requestData.Organization,
 		INN:          requestData.INN,
@@ -2278,6 +2284,7 @@ func createLegalOrder(c *fiber.Ctx) error {
 		Price:        fullOrder.Price,
 		Bonus:        fullOrder.Bonus,
 		UserID:       fullOrder.UserID,
+		Status:       fullOrder.Status,
 		OrderType:    fullOrder.OrderType,
 		Organization: fullOrder.Organization,
 		INN:          fullOrder.INN,
@@ -2328,6 +2335,7 @@ func getAllOrders(c *fiber.Ctx) error {
 			Price:        order.Price,
 			Bonus:        order.Bonus,
 			UserID:       order.UserID,
+			Status:       order.Status,
 			OrderType:    order.OrderType,
 			Phone:        order.Phone,
 			Name:         order.Name,
@@ -2381,6 +2389,7 @@ func getOrder(c *fiber.Ctx) error {
 		Price:        order.Price,
 		Bonus:        order.Bonus,
 		UserID:       order.UserID,
+		Status:       order.Status,
 		OrderType:    order.OrderType,
 		Phone:        order.Phone,
 		Name:         order.Name,
