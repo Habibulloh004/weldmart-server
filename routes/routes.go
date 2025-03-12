@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 
 	"weldmart/db"
@@ -15,16 +16,22 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/google/uuid"
-	socketio "github.com/googollee/go-socket.io"
-	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/engineio/transport"
-	"github.com/googollee/go-socket.io/engineio/transport/polling"
-	"github.com/googollee/go-socket.io/engineio/transport/websocket"
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
-// Server is the Socket.IO server instance, exported for use in main.go
-var Server *socketio.Server
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Adjust this for production
+	},
+}
+
+// Connected clients map with mutex for thread safety
+var clients = make(map[*websocket.Conn]bool)
+var broadcast = make(chan []byte, 100) // Buffered channel to prevent blocking
+var mutex = &sync.Mutex{}
 var validate = validator.New()
 
 type OrderItemResponse struct {
@@ -53,6 +60,7 @@ type OrderResponse struct {
 	UserID       uint                `json:"user_id"`
 	OrderType    string              `json:"order_type"`
 	Status       string              `json:"status"`
+	Service      string              `json:"service_mode"`
 	Phone        string              `json:"phone,omitempty"`
 	Name         string              `json:"name,omitempty"`
 	Organization string              `json:"organization,omitempty"`
@@ -147,56 +155,55 @@ type SearchResponse struct {
 }
 
 func SetupRoutes(app *fiber.App) {
-	Server = socketio.NewServer(&engineio.Options{
-		Transports: []transport.Transport{
-			polling.Default,
-			websocket.Default,
-		},
-	})
 
-	// Handle Socket.IO connection
-	Server.OnConnect("/", func(s socketio.Conn) error {
-		s.SetContext("")
-		log.Println("Client connected:", s.ID())
-		return nil
-	})
-
-	// Handle incoming messages from clients
-	Server.OnEvent("/", "message", func(s socketio.Conn, msg interface{}) {
-		// Log the received message type and data for debugging
-		switch v := msg.(type) {
-		case string:
-			log.Printf("Received string message from %s: %s", s.ID(), v)
-		case []interface{}:
-			log.Printf("Received array message from %s: %v", s.ID(), v)
-		case map[string]interface{}:
-			log.Printf("Received object message from %s: %v", s.ID(), v)
-		default:
-			log.Printf("Received unsupported message type from %s: %v", s.ID(), v)
+	wsHandler := adaptor.HTTPHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println("Error upgrading:", err)
 			return
 		}
+		defer conn.Close()
 
-		// Broadcast the raw message to all connected clients (preserving its type)
-		Server.BroadcastToNamespace("/", "broadcast", msg)
+		mutex.Lock()
+		clients[conn] = true
+		mutex.Unlock()
+		log.Println("Client connected:", conn.RemoteAddr())
+
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("WebSocket read error: %v", err)
+				}
+				mutex.Lock()
+				delete(clients, conn)
+				mutex.Unlock()
+				log.Println("Client disconnected:", conn.RemoteAddr())
+				break
+			}
+			log.Printf("Received message from %v: %s", conn.RemoteAddr(), string(message))
+			broadcast <- message
+		}
 	})
 
-	// Handle client disconnection
-	Server.OnDisconnect("/", func(s socketio.Conn, reason string) {
-		log.Println("Client disconnected:", s.ID(), "Reason:", reason)
-	})
+	// Handle broadcasting messages to all clients
+	go func() {
+		for message := range broadcast {
+			mutex.Lock()
+			for client := range clients {
+				err := client.WriteMessage(websocket.TextMessage, message)
+				if err != nil {
+					log.Printf("WebSocket write error: %v", err)
+					client.Close()
+					delete(clients, client)
+				}
+			}
+			mutex.Unlock()
+		}
+	}()
 
-	// Handle Socket.IO errors
-	Server.OnError("/", func(s socketio.Conn, e error) {
-		log.Println("Socket.IO error:", e)
-	})
-
-	// Mount Socket.IO on Fiber
-	app.Get("/socket.io/*", adaptor.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		Server.ServeHTTP(w, r)
-	})))
-	app.Post("/socket.io/*", adaptor.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		Server.ServeHTTP(w, r)
-	})))
+	// Mount WebSocket endpoint
+	app.Get("/ws", wsHandler)
 	// Image upload route
 	app.Post("/upload", uploadImage)
 
@@ -1991,6 +1998,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Bonus      float64 `json:"bonus" validate:"gte=0"`
 		UserID     uint    `json:"user_id"`
 		Status     string  `json:"status" validate:"required"`
+		Service    string  `json:"service_mode" validate:"required"`
 		Phone      string  `json:"phone" validate:"required"`
 		Name       string  `json:"name" validate:"required"`
 		OrderItems []struct {
@@ -2025,6 +2033,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Bonus:     requestData.Bonus,
 		UserID:    requestData.UserID,
 		Status:    requestData.Status,
+		Service:   requestData.Service,
 		OrderType: "individual",
 		Phone:     requestData.Phone,
 		Name:      requestData.Name,
@@ -2064,14 +2073,14 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		calculatedPrice += product.Price * float64(item.Quantity)
 	}
 
-	if calculatedPrice != requestData.Price {
-		tx.Rollback()
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":    "Price doesn't match order items total",
-			"expected": calculatedPrice,
-			"received": requestData.Price,
-		})
-	}
+	// if calculatedPrice != requestData.Price {
+	// 	tx.Rollback()
+	// 	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"error":    "Price doesn't match order items total",
+	// 		"expected": calculatedPrice,
+	// 		"received": requestData.Price,
+	// 	})
+	// }
 
 	if err := tx.Create(&orderItems).Error; err != nil {
 		tx.Rollback()
@@ -2119,6 +2128,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Bonus:     fullOrder.Bonus,
 		UserID:    fullOrder.UserID,
 		Status:    fullOrder.Status,
+		Service:   fullOrder.Service,
 		OrderType: fullOrder.OrderType,
 		Phone:     fullOrder.Phone,
 		Name:      fullOrder.Name,
@@ -2156,6 +2166,7 @@ func createLegalOrder(c *fiber.Ctx) error {
 		Bonus        float64 `json:"bonus" validate:"gte=0"`
 		UserID       uint    `json:"user_id"`
 		Status       string  `json:"status" validate:"required"`
+		Service      string  `json:"service_mode" validate:"required"`
 		Organization string  `json:"organization" validate:"required"`
 		INN          string  `json:"inn" validate:"required"`
 		Comment      string  `json:"comment"`
@@ -2191,6 +2202,7 @@ func createLegalOrder(c *fiber.Ctx) error {
 		Bonus:        requestData.Bonus,
 		UserID:       requestData.UserID,
 		Status:       requestData.Status,
+		Service:      requestData.Service,
 		OrderType:    "legal",
 		Organization: requestData.Organization,
 		INN:          requestData.INN,
@@ -2231,14 +2243,14 @@ func createLegalOrder(c *fiber.Ctx) error {
 		calculatedPrice += product.Price * float64(item.Quantity)
 	}
 
-	if calculatedPrice != requestData.Price {
-		tx.Rollback()
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":    "Price doesn't match order items total",
-			"expected": calculatedPrice,
-			"received": requestData.Price,
-		})
-	}
+	// if calculatedPrice != requestData.Price {
+	// 	tx.Rollback()
+	// 	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"error":    "Price doesn't match order items total",
+	// 		"expected": calculatedPrice,
+	// 		"received": requestData.Price,
+	// 	})
+	// }
 
 	if err := tx.Create(&orderItems).Error; err != nil {
 		tx.Rollback()
@@ -2286,6 +2298,7 @@ func createLegalOrder(c *fiber.Ctx) error {
 		Bonus:        fullOrder.Bonus,
 		UserID:       fullOrder.UserID,
 		Status:       fullOrder.Status,
+		Service:      fullOrder.Service,
 		OrderType:    fullOrder.OrderType,
 		Organization: fullOrder.Organization,
 		INN:          fullOrder.INN,
@@ -2319,135 +2332,135 @@ func createLegalOrder(c *fiber.Ctx) error {
 }
 
 func updateOrder(c *fiber.Ctx) error {
-    // Request struct that combines both individual and legal order fields
-    type UpdateOrderRequest struct {
-        ID           uint    `json:"id" validate:"required"`
-        Price        float64 `json:"price" validate:"gte=0"`
-        Bonus        float64 `json:"bonus" validate:"gte=0"`
-        Status       string  `json:"status"`
-        Phone        string  `json:"phone"`        // For individual orders
-        Name         string  `json:"name"`         // For individual orders
-        Organization string  `json:"organization"` // For legal orders
-        INN          string  `json:"inn"`          // For legal orders
-        Comment      string  `json:"comment"`      // For legal orders
-    }
+	// Request struct that combines both individual and legal order fields
+	type UpdateOrderRequest struct {
+		ID           uint    `json:"id" validate:"required"`
+		Price        float64 `json:"price" validate:"gte=0"`
+		Bonus        float64 `json:"bonus" validate:"gte=0"`
+		Status       string  `json:"status"`
+		Phone        string  `json:"phone"`        // For individual orders
+		Name         string  `json:"name"`         // For individual orders
+		Organization string  `json:"organization"` // For legal orders
+		INN          string  `json:"inn"`          // For legal orders
+		Comment      string  `json:"comment"`      // For legal orders
+	}
 
-    var requestData UpdateOrderRequest
-    if err := c.BodyParser(&requestData); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Failed to parse request body: " + err.Error(),
-        })
-    }
+	var requestData UpdateOrderRequest
+	if err := c.BodyParser(&requestData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body: " + err.Error(),
+		})
+	}
 
-    if err := validate.Struct(&requestData); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error":   "Validation failed",
-            "details": err.Error(),
-        })
-    }
+	if err := validate.Struct(&requestData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "Validation failed",
+			"details": err.Error(),
+		})
+	}
 
-    // Start transaction
-    tx := db.DB.Begin()
-    var order models.Order
-    if err := tx.Preload("OrderItems").First(&order, requestData.ID).Error; err != nil {
-        tx.Rollback()
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-            "error": "Order not found",
-        })
-    }
+	// Start transaction
+	tx := db.DB.Begin()
+	var order models.Order
+	if err := tx.Preload("OrderItems").First(&order, requestData.ID).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Order not found",
+		})
+	}
 
-    // Update fields based on order type
-    if order.OrderType == "individual" {
-        if requestData.Phone != "" {
-            order.Phone = requestData.Phone
-        }
-        if requestData.Name != "" {
-            order.Name = requestData.Name
-        }
-    } else if order.OrderType == "legal" {
-        if requestData.Organization != "" {
-            order.Organization = requestData.Organization
-        }
-        if requestData.INN != "" {
-            order.INN = requestData.INN
-        }
-        if requestData.Comment != "" {
-            order.Comment = requestData.Comment
-        }
-    }
+	// Update fields based on order type
+	if order.OrderType == "individual" {
+		if requestData.Phone != "" {
+			order.Phone = requestData.Phone
+		}
+		if requestData.Name != "" {
+			order.Name = requestData.Name
+		}
+	} else if order.OrderType == "legal" {
+		if requestData.Organization != "" {
+			order.Organization = requestData.Organization
+		}
+		if requestData.INN != "" {
+			order.INN = requestData.INN
+		}
+		if requestData.Comment != "" {
+			order.Comment = requestData.Comment
+		}
+	}
 
-    // Update common fields if provided
-    if requestData.Price > 0 {
-        order.Price = requestData.Price
-    }
-    if requestData.Bonus > 0 {
-        order.Bonus = requestData.Bonus
-    }
-    if requestData.Status != "" {
-        order.Status = requestData.Status
-    }
+	// Update common fields if provided
+	if requestData.Price > 0 {
+		order.Price = requestData.Price
+	}
+	if requestData.Bonus > 0 {
+		order.Bonus = requestData.Bonus
+	}
+	if requestData.Status != "" {
+		order.Status = requestData.Status
+	}
 
-    // Save the updated order
-    if err := tx.Save(&order).Error; err != nil {
-        tx.Rollback()
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to update order: " + err.Error(),
-        })
-    }
+	// Save the updated order
+	if err := tx.Save(&order).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update order: " + err.Error(),
+		})
+	}
 
-    if err := tx.Commit().Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to commit transaction",
-        })
-    }
+	if err := tx.Commit().Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to commit transaction",
+		})
+	}
 
-    // Load full order details for response
-    var fullOrder models.Order
-    if err := db.DB.Preload("OrderItems.Product").First(&fullOrder, order.ID).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Order updated but failed to load full details",
-        })
-    }
+	// Load full order details for response
+	var fullOrder models.Order
+	if err := db.DB.Preload("OrderItems.Product").First(&fullOrder, order.ID).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Order updated but failed to load full details",
+		})
+	}
 
-    // Prepare response
-    orderResponse := OrderResponse{
-        ID:           fullOrder.ID,
-        Price:        fullOrder.Price,
-        Bonus:        fullOrder.Bonus,
-        UserID:       fullOrder.UserID,
-        Status:       fullOrder.Status,
-        OrderType:    fullOrder.OrderType,
-        Phone:        fullOrder.Phone,
-        Name:         fullOrder.Name,
-        Organization: fullOrder.Organization,
-        INN:          fullOrder.INN,
-        Comment:      fullOrder.Comment,
-        CreatedAt:    fullOrder.CreatedAt,
-        UpdatedAt:    fullOrder.UpdatedAt,
-    }
+	// Prepare response
+	orderResponse := OrderResponse{
+		ID:           fullOrder.ID,
+		Price:        fullOrder.Price,
+		Bonus:        fullOrder.Bonus,
+		UserID:       fullOrder.UserID,
+		Status:       fullOrder.Status,
+		OrderType:    fullOrder.OrderType,
+		Phone:        fullOrder.Phone,
+		Name:         fullOrder.Name,
+		Organization: fullOrder.Organization,
+		INN:          fullOrder.INN,
+		Comment:      fullOrder.Comment,
+		CreatedAt:    fullOrder.CreatedAt,
+		UpdatedAt:    fullOrder.UpdatedAt,
+	}
 
-    for _, item := range fullOrder.OrderItems {
-        orderResponse.OrderItems = append(orderResponse.OrderItems, OrderItemResponse{
-            OrderQuantity: item.Quantity,
-            ID:            item.Product.ID,
-            Name:          item.Product.Name,
-            Rating:        item.Product.Rating,
-            Quantity:      item.Product.Quantity,
-            Description:   item.Product.Description,
-            Images:        item.Product.Images,
-            Price:         item.Product.Price,
-            Info:          item.Product.Info,
-            Feature:       item.Product.Feature,
-            Guarantee:     item.Product.Guarantee,
-            Discount:      item.Product.Discount,
-            CreatedAt:     item.Product.CreatedAt,
-            UpdatedAt:     item.Product.UpdatedAt,
-            CategoryID:    item.Product.CategoryID,
-            BrandID:       item.Product.BrandID,
-        })
-    }
+	for _, item := range fullOrder.OrderItems {
+		orderResponse.OrderItems = append(orderResponse.OrderItems, OrderItemResponse{
+			OrderQuantity: item.Quantity,
+			ID:            item.Product.ID,
+			Name:          item.Product.Name,
+			Rating:        item.Product.Rating,
+			Quantity:      item.Product.Quantity,
+			Description:   item.Product.Description,
+			Images:        item.Product.Images,
+			Price:         item.Product.Price,
+			Info:          item.Product.Info,
+			Feature:       item.Product.Feature,
+			Guarantee:     item.Product.Guarantee,
+			Discount:      item.Product.Discount,
+			CreatedAt:     item.Product.CreatedAt,
+			UpdatedAt:     item.Product.UpdatedAt,
+			CategoryID:    item.Product.CategoryID,
+			BrandID:       item.Product.BrandID,
+		})
+	}
 
-    return c.Status(fiber.StatusOK).JSON(orderResponse)
+	return c.Status(fiber.StatusOK).JSON(orderResponse)
 }
 
 func getAllOrders(c *fiber.Ctx) error {
@@ -2469,6 +2482,7 @@ func getAllOrders(c *fiber.Ctx) error {
 			Bonus:        order.Bonus,
 			UserID:       order.UserID,
 			Status:       order.Status,
+			Service:      order.Service,
 			OrderType:    order.OrderType,
 			Phone:        order.Phone,
 			Name:         order.Name,
@@ -2523,6 +2537,7 @@ func getOrder(c *fiber.Ctx) error {
 		Bonus:        order.Bonus,
 		UserID:       order.UserID,
 		Status:       order.Status,
+		Service:      order.Service,
 		OrderType:    order.OrderType,
 		Phone:        order.Phone,
 		Name:         order.Name,

@@ -13,6 +13,7 @@ type Order struct {
 	Status       string      `json:"status"`
 	Phone        string      `json:"phone,omitempty" gorm:"default:null"`
 	Name         string      `json:"name,omitempty" gorm:"default:null"`
+	Service      string      `json:"service_mode" gorm:"default:null"`
 	Organization string      `json:"organization,omitempty" gorm:"default:null"`
 	INN          string      `json:"inn,omitempty" gorm:"default:null"`
 	Comment      string      `json:"comment,omitempty" gorm:"default:null"`

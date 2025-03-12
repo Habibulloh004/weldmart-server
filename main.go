@@ -33,16 +33,8 @@ func main() {
 	// Serve static files
 	app.Static("/uploads", "./uploads")
 
-	// Setup routes (including Socket.IO)
+	// Setup routes (including WebSocket)
 	routes.SetupRoutes(app)
-
-	// Start Socket.IO server in a goroutine
-	go func() {
-		if err := routes.Server.Serve(); err != nil {
-			log.Fatalf("Socket.IO server error: %v", err)
-		}
-	}()
-	defer routes.Server.Close()
 
 	// Start Fiber server
 	log.Println("Server starting on :8080")
