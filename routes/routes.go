@@ -293,6 +293,13 @@ func SetupRoutes(app *fiber.App) {
 	hrassikas.Put("/:id", updateHRassika)
 	hrassikas.Delete("/:id", deleteHRassika)
 
+	clients := api.Group("/clients")
+	clients.Post("/", createClient)
+	clients.Get("/", getAllClients)
+	clients.Get("/:id", getClient)
+	clients.Put("/:id", updateClient)
+	clients.Delete("/:id", deleteClient)
+
 	// Individual Order routes
 	individualOrders := api.Group("/individual-orders")
 	individualOrders.Post("/", createIndividualOrder)
@@ -345,6 +352,143 @@ func uploadImage(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"filename": filename,
 		"path":     "/uploads/" + filename,
+	})
+}
+
+func createClient(c *fiber.Ctx) error {
+	client := new(models.Clients)
+
+	// Parse request body
+	if err := c.BodyParser(client); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
+
+	// Validate required fields
+	validate := validator.New()
+	if err := validate.Struct(client); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Image field is required",
+		})
+	}
+
+	// Create client in database
+	if err := db.DB.Create(&client).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to create client",
+		})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(client)
+}
+
+// GetAllClients - GET /clients
+func getAllClients(c *fiber.Ctx) error {
+	var clients []models.Clients
+
+	if err := db.DB.Find(&clients).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get clients",
+		})
+	}
+
+	return c.JSON(clients)
+}
+
+// GetClient - GET /clients/:id
+func getClient(c *fiber.Ctx) error {
+	id := c.Params("id")
+	var client models.Clients
+
+	if err := db.DB.First(&client, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Client not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get client",
+		})
+	}
+
+	return c.JSON(client)
+}
+
+// UpdateClient - PUT /clients/:id
+func updateClient(c *fiber.Ctx) error {
+	id := c.Params("id")
+	client := new(models.Clients)
+
+	// Parse request body
+	if err := c.BodyParser(client); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
+
+	// Check if client exists
+	var existingClient models.Clients
+	if err := db.DB.First(&existingClient, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Client not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to find client",
+		})
+	}
+
+	// Validate required fields
+	validate := validator.New()
+	if err := validate.Struct(client); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Image field is required",
+		})
+	}
+
+	// Update client
+	if err := db.DB.Model(&existingClient).Updates(client).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update client",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Client updated successfully",
+		"data":    existingClient,
+	})
+}
+
+// DeleteClient - DELETE /clients/:id
+func deleteClient(c *fiber.Ctx) error {
+	id := c.Params("id")
+
+	// Check if client exists
+	var client models.Clients
+	if err := db.DB.First(&client, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Client not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to find client",
+		})
+	}
+
+	// Delete client
+	if err := db.DB.Delete(&client).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to delete client",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Client deleted successfully",
 	})
 }
 
@@ -2001,6 +2145,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Service    string  `json:"service_mode" validate:"required"`
 		Phone      string  `json:"phone" validate:"required"`
 		Name       string  `json:"name" validate:"required"`
+		Comment    string  `json:"comment"`
 		OrderItems []struct {
 			ProductID uint `json:"product_id" validate:"required"`
 			Quantity  int  `json:"quantity" validate:"required,gte=1"`
@@ -2037,6 +2182,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		OrderType: "individual",
 		Phone:     requestData.Phone,
 		Name:      requestData.Name,
+		Comment:   requestData.Comment,
 	}
 
 	tx := db.DB.Begin()
@@ -2130,6 +2276,7 @@ func createIndividualOrder(c *fiber.Ctx) error {
 		Status:    fullOrder.Status,
 		Service:   fullOrder.Service,
 		OrderType: fullOrder.OrderType,
+		Comment:   fullOrder.Comment,
 		Phone:     fullOrder.Phone,
 		Name:      fullOrder.Name,
 		CreatedAt: fullOrder.CreatedAt,
