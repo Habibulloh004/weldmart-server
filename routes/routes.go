@@ -1097,7 +1097,13 @@ func updateProduct(c *fiber.Ctx) error {
 		}
 	}
 
-	db.DB.Model(&models.Product{}).Where("id = ?", id).Updates(product)
+	// Update with specific fields, including zero values
+	if err := db.DB.Model(&existingProduct).Select("Name", "Quantity", "CategoryID").Updates(product).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update product",
+		})
+	}
+
 	return c.JSON(fiber.Map{
 		"success": true,
 		"message": "Product updated successfully",
