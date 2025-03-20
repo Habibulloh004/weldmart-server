@@ -127,11 +127,21 @@ type BrandWithProducts struct {
 	Products    []models.Product `json:"products,omitempty"`
 }
 
+type BrandResponse struct {
+    ID          uint      `json:"id"`
+    Name        string    `json:"name"`
+    Country     string    `json:"country"`
+    Description string    `json:"description"`
+    Image       string    `json:"image"`
+    CreatedAt   time.Time `json:"created_at"`
+    UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type BrandListResponse struct {
-	Brands []BrandWithProducts `json:"brands"`
-	Total  int                 `json:"total"` // Total brands
-	Skip   int                 `json:"skip"`  // Brand skip
-	Limit  int                 `json:"limit"` // Brand limit
+	Brands []BrandResponse `json:"brands"`
+	Total  int             `json:"total"`
+	Skip   int             `json:"skip"`
+	Limit  int             `json:"limit"`
 }
 
 type SearchResponse struct {
@@ -181,32 +191,32 @@ type BottomCategoryWithProductsResponse struct {
 }
 
 type CategoryResponse struct {
-    Categories []struct {
-        ID             uint                   `json:"id"`
-        Name           string                 `json:"name"`
-        Description    string                 `json:"description"`
-        Image          string                 `json:"image"`
-        CreatedAt      time.Time              `json:"created_at"`
-        UpdatedAt      time.Time              `json:"updated_at"`
-        BottomCategories []models.BottomCategory `json:"bottom_categories"`
-    } `json:"categories"`
-    Total int `json:"total"`
-    Skip  int `json:"skip"`
-    Limit int `json:"limit"`
+	Categories []struct {
+		ID               uint                    `json:"id"`
+		Name             string                  `json:"name"`
+		Description      string                  `json:"description"`
+		Image            string                  `json:"image"`
+		CreatedAt        time.Time               `json:"created_at"`
+		UpdatedAt        time.Time               `json:"updated_at"`
+		BottomCategories []models.BottomCategory `json:"bottom_categories"`
+	} `json:"categories"`
+	Total int `json:"total"`
+	Skip  int `json:"skip"`
+	Limit int `json:"limit"`
 }
 
 // CategoryWithBottomCategoriesResponse for getCategory
 type CategoryWithBottomCategoriesResponse struct {
-    ID             uint                   `json:"id"`
-    Name           string                 `json:"name"`
-    Description    string                 `json:"description"`
-    Image          string                 `json:"image"`
-    CreatedAt      time.Time              `json:"created_at"`
-    UpdatedAt      time.Time              `json:"updated_at"`
-    BottomCategories []models.BottomCategory `json:"bottom_categories"`
-    Total          int                    `json:"total"` // Total bottom categories
-    Skip           int                    `json:"skip"`
-    Limit          int                    `json:"limit"`
+	ID               uint                    `json:"id"`
+	Name             string                  `json:"name"`
+	Description      string                  `json:"description"`
+	Image            string                  `json:"image"`
+	CreatedAt        time.Time               `json:"created_at"`
+	UpdatedAt        time.Time               `json:"updated_at"`
+	BottomCategories []models.BottomCategory `json:"bottom_categories"`
+	Total            int                     `json:"total"` // Total bottom categories
+	Skip             int                     `json:"skip"`
+	Limit            int                     `json:"limit"`
 }
 
 func SetupRoutes(app *fiber.App) {
@@ -966,259 +976,438 @@ func createProduct(c *fiber.Ctx) error {
 }
 
 func searchProducts(c *fiber.Ctx) error {
-    query := c.Query("q")
-    if query == "" {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Query parameter 'q' is required",
-        })
-    }
+	query := c.Query("q")
+	if query == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Query parameter 'q' is required",
+		})
+	}
 
-    var products []models.Product
+	var products []models.Product
 
-    // Step 1: Search by Product Name
-    if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
-        Where("name LIKE ?", "%"+query+"%").Find(&products).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to search products",
-        })
-    }
+	// Step 1: Search by Product Name
+	if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+		Where("name LIKE ?", "%"+query+"%").Find(&products).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to search products",
+		})
+	}
 
-    // If products are found by name, return them
-    if len(products) > 0 {
-        return c.JSON(SearchResponse{Products: products})
-    }
+	// If products are found by name, return them
+	if len(products) > 0 {
+		return c.JSON(SearchResponse{Products: products})
+	}
 
-    // Step 2: Search by Category Name
-    var categoryIDs []uint
-    if err := db.DB.Model(&models.Category{}).
-        Where("name LIKE ?", "%"+query+"%").
-        Pluck("id", &categoryIDs).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to search categories",
-        })
-    }
+	// Step 2: Search by Category Name
+	var categoryIDs []uint
+	if err := db.DB.Model(&models.Category{}).
+		Where("name LIKE ?", "%"+query+"%").
+		Pluck("id", &categoryIDs).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to search categories",
+		})
+	}
 
-    if len(categoryIDs) > 0 {
-        if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
-            Where("category_id IN ?", categoryIDs).Find(&products).Error; err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "error": "Failed to get products by category",
-            })
-        }
-        // If products are found by category, return them
-        if len(products) > 0 {
-            return c.JSON(SearchResponse{Products: products})
-        }
-    }
+	if len(categoryIDs) > 0 {
+		if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+			Where("category_id IN ?", categoryIDs).Find(&products).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to get products by category",
+			})
+		}
+		// If products are found by category, return them
+		if len(products) > 0 {
+			return c.JSON(SearchResponse{Products: products})
+		}
+	}
 
-    // Step 3: Search by Bottom Category Name
-    var bottomCategoryIDs []uint
-    if err := db.DB.Model(&models.BottomCategory{}). // Assuming BottomCategory is your model name
-        Where("name LIKE ?", "%"+query+"%").
-        Pluck("id", &bottomCategoryIDs).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to search bottom categories",
-        })
-    }
+	// Step 3: Search by Bottom Category Name
+	var bottomCategoryIDs []uint
+	if err := db.DB.Model(&models.BottomCategory{}). // Assuming BottomCategory is your model name
+								Where("name LIKE ?", "%"+query+"%").
+								Pluck("id", &bottomCategoryIDs).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to search bottom categories",
+		})
+	}
 
-    if len(bottomCategoryIDs) > 0 {
-        if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
-            Where("bottom_category_id IN ?", bottomCategoryIDs).Find(&products).Error; err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "error": "Failed to get products by bottom category",
-            })
-        }
-        // If products are found by bottom category, return them
-        if len(products) > 0 {
-            return c.JSON(SearchResponse{Products: products})
-        }
-    }
+	if len(bottomCategoryIDs) > 0 {
+		if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+			Where("bottom_category_id IN ?", bottomCategoryIDs).Find(&products).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to get products by bottom category",
+			})
+		}
+		// If products are found by bottom category, return them
+		if len(products) > 0 {
+			return c.JSON(SearchResponse{Products: products})
+		}
+	}
 
-    // Step 4: Search by Brand Name
-    var brandIDs []uint
-    if err := db.DB.Model(&models.Brand{}).
-        Where("name LIKE ?", "%"+query+"%").
-        Pluck("id", &brandIDs).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to search brands",
-        })
-    }
+	// Step 4: Search by Brand Name
+	var brandIDs []uint
+	if err := db.DB.Model(&models.Brand{}).
+		Where("name LIKE ?", "%"+query+"%").
+		Pluck("id", &brandIDs).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to search brands",
+		})
+	}
 
-    if len(brandIDs) > 0 {
-        if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
-            Where("brand_id IN ?", brandIDs).Find(&products).Error; err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "error": "Failed to get products by brand",
-            })
-        }
-    }
+	if len(brandIDs) > 0 {
+		if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+			Where("brand_id IN ?", brandIDs).Find(&products).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to get products by brand",
+			})
+		}
+	}
 
-    // Return the products (could be empty if no matches found)
-    return c.JSON(SearchResponse{Products: products})
+	// Return the products (could be empty if no matches found)
+	return c.JSON(SearchResponse{Products: products})
 }
 
 // GetAllProducts
 func getAllProducts(c *fiber.Ctx) error {
-    var total int64
-    var products []models.Product
+	var total int64
+	var products []models.Product
 
-    // Get query parameters with error handling
-    limitStr := c.Query("limit")
-    skipStr := c.Query("skip")
-    categoryID := c.Query("category_id")
-    bottomCategoryID := c.Query("bottom_category_id") // New query parameter for bottom_category_id
-    brandID := c.Query("brand_id")
+	// Get query parameters with error handling
+	limitStr := c.Query("limit")
+	skipStr := c.Query("skip")
+	categoryID := c.Query("category_id")
+	bottomCategoryID := c.Query("bottom_category_id")
+	brandID := c.Query("brand_id")
 
-    var limit, skip int
+	var limit, skip int
+	limit = -1 // No limit unless specified
+	skip = 0   // Default skip to 0
 
-    // Default values
-    limit = -1 // No limit unless specified
-    skip = 0   // Default skip to 0
+	// Parse limit if provided
+	if limitStr != "" {
+		limit = c.QueryInt("limit", 0)
+		if limit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid limit parameter",
+			})
+		}
+	}
 
-    // Parse limit if provided
-    if limitStr != "" {
-        limit = c.QueryInt("limit", 0)
-        if limit < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid limit parameter",
-            })
-        }
-    }
+	// Parse skip if provided
+	if skipStr != "" {
+		skip = c.QueryInt("skip", 0)
+		if skip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid skip parameter",
+			})
+		}
+	}
 
-    // Parse skip if provided
-    if skipStr != "" {
-        skip = c.QueryInt("skip", 0)
-        if skip < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid skip parameter",
-            })
-        }
-    }
+	// Base query with preloading
+	dbQuery := db.DB.Preload("Category").Preload("BottomCategory").Preload("Brand")
 
-    // Base query with preloading
-    dbQuery := db.DB.Preload("Category").Preload("BottomCategory").Preload("Brand")
+	// Apply filters if provided
+	if categoryID != "" {
+		dbQuery = dbQuery.Where("category_id = ?", categoryID)
+	}
+	if bottomCategoryID != "" {
+		dbQuery = dbQuery.Where("bottom_category_id = ?", bottomCategoryID)
+	}
+	if brandID != "" {
+		dbQuery = dbQuery.Where("brand_id = ?", brandID)
+	}
 
-    // Apply filters if provided
-    if categoryID != "" {
-        dbQuery = dbQuery.Where("category_id = ?", categoryID)
-    }
-    if bottomCategoryID != "" {
-        dbQuery = dbQuery.Where("bottom_category_id = ?", bottomCategoryID)
-    }
-    if brandID != "" {
-        dbQuery = dbQuery.Where("brand_id = ?", brandID)
-    }
+	// Count total products
+	if err := dbQuery.Model(&models.Product{}).Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count products",
+		})
+	}
 
-    // Count total products (filtered by category_id, bottom_category_id, and/or brand_id if applicable)
-    if err := dbQuery.Model(&models.Product{}).Count(&total).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to count products",
-        })
-    }
+	// Apply pagination
+	if skip > 0 {
+		dbQuery = dbQuery.Offset(skip)
+	}
+	if limit > 0 {
+		dbQuery = dbQuery.Limit(limit)
+	} else {
+		dbQuery = dbQuery.Limit(int(total))
+	}
 
-    // Apply pagination
-    if skip > 0 {
-        dbQuery = dbQuery.Offset(skip)
-    }
-    if limit > 0 {
-        dbQuery = dbQuery.Limit(limit)
-    } else {
-        dbQuery = dbQuery.Limit(int(total)) // Fetch all after skip
-    }
+	// Fetch products
+	if err := dbQuery.Find(&products).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get products",
+		})
+	}
 
-    // Fetch products
-    if err := dbQuery.Find(&products).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to get products",
-        })
-    }
+	// Define inline response structs to match the desired output
+	type CategoryResp struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
 
-    // Prepare response
-    response := ProductResponse{
-        Products: products,
-        Total:    int(total),
-        Skip:     skip,
-        Limit:    limit,
-    }
+	type BottomCategoryResp struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
 
-    return c.JSON(response)
+	type ProductResp struct {
+		ID             uint             `json:"id"`
+		Name           string           `json:"name"`
+		Rating         float64          `json:"rating"`
+		Quantity       uint             `json:"quantity"`
+		Description    string           `json:"description"`
+		Images         []string         `json:"images"`
+		Price          float64          `json:"price"`
+		Info           string           `json:"info"`
+		Feature        string           `json:"feature"`
+		Guarantee      string           `json:"guarantee"`
+		Discount       string           `json:"discount"`
+		CreatedAt      time.Time        `json:"created_at"`
+		UpdatedAt      time.Time        `json:"updated_at"`
+		CategoryID     uint             `json:"category_id"`
+		BottomCategoryID uint           `json:"bottom_category_id"`
+		BrandID        uint             `json:"brand_id"`
+		Category       CategoryResp     `json:"category"`
+		BottomCategory BottomCategoryResp `json:"bottom_category"`
+		Brand          BrandResponse    `json:"brand"` // Reusing existing BrandResponse
+	}
+
+	// Map products to the custom response format
+	var productResponses []ProductResp
+	for _, p := range products {
+		productResp := ProductResp{
+			ID:            p.ID,
+			Name:          p.Name,
+			Rating:        p.Rating,
+			Quantity:      p.Quantity,
+			Description:   p.Description,
+			Images:        p.Images,
+			Price:         p.Price,
+			Info:          p.Info,
+			Feature:       p.Feature,
+			Guarantee:     p.Guarantee,
+			Discount:      p.Discount,
+			CreatedAt:     p.CreatedAt,
+			UpdatedAt:     p.UpdatedAt,
+			CategoryID:    p.CategoryID,
+			BottomCategoryID: p.BottomCategoryID,
+			BrandID:       p.BrandID,
+			Category: CategoryResp{
+				ID:          p.Category.ID,
+				Name:        p.Category.Name,
+				Description: p.Category.Description,
+				CreatedAt:   p.Category.CreatedAt,
+				UpdatedAt:   p.Category.UpdatedAt,
+				Image:       p.Category.Image,
+			},
+			BottomCategory: BottomCategoryResp{
+				ID:          p.BottomCategory.ID,
+				Name:        p.BottomCategory.Name,
+				Description: p.BottomCategory.Description,
+				CreatedAt:   p.BottomCategory.CreatedAt,
+				UpdatedAt:   p.BottomCategory.UpdatedAt,
+				Image:       p.BottomCategory.Image,
+			},
+			Brand: BrandResponse{
+				ID:          p.Brand.ID,
+				Name:        p.Brand.Name,
+				Country:     p.Brand.Country,
+				Description: p.Brand.Description,
+				Image:       p.Brand.Image,
+				CreatedAt:   p.Brand.CreatedAt,
+				UpdatedAt:   p.Brand.UpdatedAt,
+			},
+		}
+		productResponses = append(productResponses, productResp)
+	}
+
+	// Prepare response using the existing ProductResponse struct shell
+	response := struct {
+		Products []ProductResp `json:"products"`
+		Total    int           `json:"total"`
+		Skip     int           `json:"skip"`
+		Limit    int           `json:"limit"`
+	}{
+		Products: productResponses,
+		Total:    int(total),
+		Skip:     skip,
+		Limit:    limit,
+	}
+
+	return c.JSON(response)
 }
 
 // GetProduct
 func getProduct(c *fiber.Ctx) error {
-    id := c.Params("id")
-    var product models.Product
+	id := c.Params("id")
+	var product models.Product
 
-    // Preload full Category, BottomCategory, and Brand structs
-    if err := db.DB.Preload("Category").Preload("BottomCategory").Preload("Brand").First(&product, id).Error; err != nil {
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-            "error": "Product not found",
-        })
-    }
+	// Preload full Category, BottomCategory, and Brand structs
+	if err := db.DB.Preload("Category").Preload("BottomCategory").Preload("Brand").First(&product, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Product not found",
+		})
+	}
 
-    return c.JSON(product)
+	// Define inline response structs to match the desired output
+	type CategoryResp struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
+
+	type BottomCategoryResp struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
+
+	type ProductResp struct {
+		ID             uint               `json:"id"`
+		Name           string             `json:"name"`
+		Rating         float64            `json:"rating"`
+		Quantity       uint               `json:"quantity"`
+		Description    string             `json:"description"`
+		Images         []string           `json:"images"`
+		Price          float64            `json:"price"`
+		Info           string             `json:"info"`
+		Feature        string             `json:"feature"`
+		Guarantee      string             `json:"guarantee"`
+		Discount       string             `json:"discount"`
+		CreatedAt      time.Time          `json:"created_at"`
+		UpdatedAt      time.Time          `json:"updated_at"`
+		CategoryID     uint               `json:"category_id"`
+		BottomCategoryID uint             `json:"bottom_category_id"`
+		BrandID        uint               `json:"brand_id"`
+		Category       CategoryResp       `json:"category"`
+		BottomCategory BottomCategoryResp `json:"bottom_category"`
+		Brand          BrandResponse      `json:"brand"` // Reusing existing BrandResponse
+	}
+
+	// Map the product to the custom response format
+	productResp := ProductResp{
+		ID:            product.ID,
+		Name:          product.Name,
+		Rating:        product.Rating,
+		Quantity:      product.Quantity,
+		Description:   product.Description,
+		Images:        product.Images,
+		Price:         product.Price,
+		Info:          product.Info,
+		Feature:       product.Feature,
+		Guarantee:     product.Guarantee,
+		Discount:      product.Discount,
+		CreatedAt:     product.CreatedAt,
+		UpdatedAt:     product.UpdatedAt,
+		CategoryID:    product.CategoryID,
+		BottomCategoryID: product.BottomCategoryID,
+		BrandID:       product.BrandID,
+		Category: CategoryResp{
+			ID:          product.Category.ID,
+			Name:        product.Category.Name,
+			Description: product.Category.Description,
+			CreatedAt:   product.Category.CreatedAt,
+			UpdatedAt:   product.Category.UpdatedAt,
+			Image:       product.Category.Image,
+		},
+		BottomCategory: BottomCategoryResp{
+			ID:          product.BottomCategory.ID,
+			Name:        product.BottomCategory.Name,
+			Description: product.BottomCategory.Description,
+			CreatedAt:   product.BottomCategory.CreatedAt,
+			UpdatedAt:   product.BottomCategory.UpdatedAt,
+			Image:       product.BottomCategory.Image,
+		},
+		Brand: BrandResponse{
+			ID:          product.Brand.ID,
+			Name:        product.Brand.Name,
+			Country:     product.Brand.Country,
+			Description: product.Brand.Description,
+			Image:       product.Brand.Image,
+			CreatedAt:   product.Brand.CreatedAt,
+			UpdatedAt:   product.Brand.UpdatedAt,
+		},
+	}
+
+	return c.JSON(productResp)
 }
 
 // UpdateProduct
 
 func updateProduct(c *fiber.Ctx) error {
-    id := c.Params("id")
-    product := new(models.Product)
+	id := c.Params("id")
+	product := new(models.Product)
 
-    // Parse the incoming request body
-    if err := c.BodyParser(product); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Failed to parse request body",
-        })
-    }
+	// Parse the incoming request body
+	if err := c.BodyParser(product); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
 
-    // Fetch the existing product from database
-    var existingProduct models.Product
-    if err := db.DB.First(&existingProduct, id).Error; err != nil {
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-            "error": "Product not found",
-        })
-    }
+	// Fetch the existing product from database
+	var existingProduct models.Product
+	if err := db.DB.First(&existingProduct, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Product not found",
+		})
+	}
 
-    // Validate BottomCategoryID if provided
-    if product.BottomCategoryID != 0 {
-        var bottomCategory models.BottomCategory // Use your actual BottomCategory model
-        if err := db.DB.First(&bottomCategory, product.BottomCategoryID).Error; err != nil {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Bottom category not found",
-            })
-        }
-    }
+	// Validate BottomCategoryID if provided
+	if product.BottomCategoryID != 0 {
+		var bottomCategory models.BottomCategory // Use your actual BottomCategory model
+		if err := db.DB.First(&bottomCategory, product.BottomCategoryID).Error; err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Bottom category not found",
+			})
+		}
+	}
 
-    // Create update struct with allowed fields from request
-    updateData := models.Product{
-        Name:            product.Name,
-        Quantity:        product.Quantity,
-        CategoryID:      product.CategoryID,
-        BrandID:         product.BrandID,
-        Price:           product.Price,
-        Rating:          product.Rating,
-        Description:     product.Description,
-        Images:          product.Images,
-        Info:            product.Info,
-        Feature:         product.Feature,
-        Guarantee:       product.Guarantee,
-        Discount:        product.Discount,
-        BottomCategoryID: product.BottomCategoryID,
-    }
+	// Create update struct with allowed fields from request
+	updateData := models.Product{
+		Name:             product.Name,
+		Quantity:         product.Quantity,
+		CategoryID:       product.CategoryID,
+		BrandID:          product.BrandID,
+		Price:            product.Price,
+		Rating:           product.Rating,
+		Description:      product.Description,
+		Images:           product.Images,
+		Info:             product.Info,
+		Feature:          product.Feature,
+		Guarantee:        product.Guarantee,
+		Discount:         product.Discount,
+		BottomCategoryID: product.BottomCategoryID,
+	}
 
-    // Perform the update
-    if err := db.DB.Model(&existingProduct).Updates(updateData).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to update product",
-        })
-    }
+	// Perform the update
+	if err := db.DB.Model(&existingProduct).Updates(updateData).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update product",
+		})
+	}
 
-    // Return the updated product
-    return c.JSON(fiber.Map{
-        "success": true,
-        "message": "Product updated successfully",
-    })
+	// Return the updated product
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Product updated successfully",
+	})
 }
 
 // DeleteProduct
@@ -1238,275 +1427,309 @@ func deleteProduct(c *fiber.Ctx) error {
 }
 
 func createBottomCategory(c *fiber.Ctx) error {
-    bottomCategory := new(models.BottomCategory)
-    if err := c.BodyParser(bottomCategory); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Failed to parse request body",
-        })
-    }
+	bottomCategory := new(models.BottomCategory)
+	if err := c.BodyParser(bottomCategory); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
 
-    // Ensure Products field is empty when creating a new bottom category
-    bottomCategory.Products = nil
+	// Ensure Products field is empty when creating a new bottom category
+	bottomCategory.Products = nil
 
-    // Validate CategoryID exists
-    if bottomCategory.CategoryID != 0 {
-        var category models.Category
-        if err := db.DB.First(&category, bottomCategory.CategoryID).Error; err != nil {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Referenced category not found",
-            })
-        }
-    }
+	// Validate CategoryID exists
+	if bottomCategory.CategoryID != 0 {
+		var category models.Category
+		if err := db.DB.First(&category, bottomCategory.CategoryID).Error; err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Referenced category not found",
+			})
+		}
+	}
 
-    if err := db.DB.Create(&bottomCategory).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to create bottom category",
-        })
-    }
+	if err := db.DB.Create(&bottomCategory).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to create bottom category",
+		})
+	}
 
-    return c.Status(fiber.StatusCreated).JSON(bottomCategory)
+	return c.Status(fiber.StatusCreated).JSON(bottomCategory)
 }
 
 // GetAllBottomCategories
 func getAllBottomCategories(c *fiber.Ctx) error {
-    var total int64
-    var bottomCategories []models.BottomCategory
+	var total int64
+	var bottomCategories []models.BottomCategory
 
-    // Get query parameters
-    limitStr := c.Query("limit")
-    skipStr := c.Query("skip")
+	// Get query parameters
+	limitStr := c.Query("limit")
+	skipStr := c.Query("skip")
 
-    var limit, skip int
-    limit = -1 // No limit by default
-    skip = 0   // No skip by default
+	var limit, skip int
+	limit = -1 // No limit by default
+	skip = 0   // No skip by default
 
-    if limitStr != "" {
-        limit = c.QueryInt("limit", 0)
-        if limit < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid limit parameter",
-            })
-        }
-    }
+	if limitStr != "" {
+		limit = c.QueryInt("limit", 0)
+		if limit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid limit parameter",
+			})
+		}
+	}
 
-    if skipStr != "" {
-        skip = c.QueryInt("skip", 0)
-        if skip < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid skip parameter",
-            })
-        }
-    }
+	if skipStr != "" {
+		skip = c.QueryInt("skip", 0)
+		if skip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid skip parameter",
+			})
+		}
+	}
 
-    // Count total bottom categories
-    if err := db.DB.Model(&models.BottomCategory{}).Count(&total).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to count bottom categories",
-        })
-    }
+	// Count total bottom categories
+	if err := db.DB.Model(&models.BottomCategory{}).Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count bottom categories",
+		})
+	}
 
-    // Query with pagination and preload Products
-    dbQuery := db.DB.Preload("Products")
-    if skip > 0 {
-        dbQuery = dbQuery.Offset(skip)
-    }
-    if limit > 0 {
-        dbQuery = dbQuery.Limit(limit)
-    } else {
-        dbQuery = dbQuery.Limit(int(total))
-    }
+	// Query with pagination and preload Category (no Products)
+	dbQuery := db.DB.Preload("Category") // Preload Category instead of Products
+	if skip > 0 {
+		dbQuery = dbQuery.Offset(skip)
+	}
+	if limit > 0 {
+		dbQuery = dbQuery.Limit(limit)
+	} else {
+		dbQuery = dbQuery.Limit(int(total))
+	}
 
-    if err := dbQuery.Find(&bottomCategories).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to get bottom categories",
-        })
-    }
+	if err := dbQuery.Find(&bottomCategories).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get bottom categories",
+		})
+	}
 
-    // Prepare response
-    response := BottomCategoryResponse{
-        BottomCategories: make([]struct {
-            ID          uint             `json:"id"`
-            Name        string           `json:"name"`
-            Description string           `json:"description"`
-            Image       string           `json:"image"`
-            CreatedAt   time.Time        `json:"created_at"`
-            UpdatedAt   time.Time        `json:"updated_at"`
-            CategoryID  uint             `json:"category_id"`
-            Products    []models.Product `json:"products,omitempty"`
-        }, len(bottomCategories)),
-        Total: int(total),
-        Skip:  skip,
-        Limit: limit,
-    }
+	// Define inline response structs
+	type CategoryResp struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
 
-    // Map bottom categories to response structure
-    for i, bc := range bottomCategories {
-        response.BottomCategories[i] = struct {
-            ID          uint             `json:"id"`
-            Name        string           `json:"name"`
-            Description string           `json:"description"`
-            Image       string           `json:"image"`
-            CreatedAt   time.Time        `json:"created_at"`
-            UpdatedAt   time.Time        `json:"updated_at"`
-            CategoryID  uint             `json:"category_id"`
-            Products    []models.Product `json:"products,omitempty"`
-        }{
-            ID:          bc.ID,
-            Name:        bc.Name,
-            Description: bc.Description,
-            Image:       bc.Image,
-            CreatedAt:   bc.CreatedAt,
-            UpdatedAt:   bc.UpdatedAt,
-            CategoryID:  bc.CategoryID,
-            Products:    bc.Products,
-        }
-    }
+	type BottomCategoryResp struct {
+		ID          uint         `json:"id"`
+		Name        string       `json:"name"`
+		Description string       `json:"description"`
+		Image       string       `json:"image"`
+		CreatedAt   time.Time    `json:"created_at"`
+		UpdatedAt   time.Time    `json:"updated_at"`
+		CategoryID  uint         `json:"category_id"`
+		Category    CategoryResp `json:"category"`
+	}
 
-    return c.JSON(response)
+	// Map bottom categories to response structure
+	bottomCategoryResponses := make([]BottomCategoryResp, len(bottomCategories))
+	for i, bc := range bottomCategories {
+		bottomCategoryResponses[i] = BottomCategoryResp{
+			ID:          bc.ID,
+			Name:        bc.Name,
+			Description: bc.Description,
+			Image:       bc.Image,
+			CreatedAt:   bc.CreatedAt,
+			UpdatedAt:   bc.UpdatedAt,
+			CategoryID:  bc.CategoryID,
+			Category: CategoryResp{
+				ID:          bc.Category.ID,
+				Name:        bc.Category.Name,
+				Description: bc.Category.Description,
+				CreatedAt:   bc.Category.CreatedAt,
+				UpdatedAt:   bc.Category.UpdatedAt,
+				Image:       bc.Category.Image,
+			},
+		}
+	}
+
+	// Prepare response
+	response := struct {
+		BottomCategories []BottomCategoryResp `json:"bottom_categories"`
+		Total            int                  `json:"total"`
+		Skip             int                  `json:"skip"`
+		Limit            int                  `json:"limit"`
+	}{
+		BottomCategories: bottomCategoryResponses,
+		Total:            int(total),
+		Skip:             skip,
+		Limit:            limit,
+	}
+
+	return c.JSON(response)
 }
 
 // GetBottomCategory
 func getBottomCategory(c *fiber.Ctx) error {
-    id := c.Params("id")
-    var bottomCategory models.BottomCategory
-    var totalProducts int64
+	id := c.Params("id")
+	var bottomCategory models.BottomCategory
+	var totalProducts int64
 
-    // Get query parameters for product pagination
-    productLimitStr := c.Query("product_limit")
-    productSkipStr := c.Query("product_skip")
+	// Get query parameters for product pagination (still used for counting total products)
+	productLimitStr := c.Query("product_limit")
+	productSkipStr := c.Query("product_skip")
 
-    var productLimit, productSkip int
-    productLimit = -1 // No limit unless specified
-    productSkip = 0   // Default skip to 0
+	var productLimit, productSkip int
+	productLimit = -1 // No limit unless specified
+	productSkip = 0   // Default skip to 0
 
-    if productLimitStr != "" {
-        productLimit = c.QueryInt("product_limit", 0)
-        if productLimit < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid product_limit parameter",
-            })
-        }
-    }
+	if productLimitStr != "" {
+		productLimit = c.QueryInt("product_limit", 0)
+		if productLimit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid product_limit parameter",
+			})
+		}
+	}
 
-    if productSkipStr != "" {
-        productSkip = c.QueryInt("product_skip", 0)
-        if productSkip < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid product_skip parameter",
-            })
-        }
-    }
+	if productSkipStr != "" {
+		productSkip = c.QueryInt("product_skip", 0)
+		if productSkip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid product_skip parameter",
+			})
+		}
+	}
 
-    // Count total products for this bottom category
-    if err := db.DB.Model(&models.Product{}).Where("bottom_category_id = ?", id).Count(&totalProducts).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to count products",
-        })
-    }
+	// Count total products for this bottom category (optional, kept for consistency)
+	if err := db.DB.Model(&models.Product{}).Where("bottom_category_id = ?", id).Count(&totalProducts).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count products",
+		})
+	}
 
-    // Query bottom category with paginated products and preloaded category
-    productQuery := db.DB.Model(&models.Product{}).Where("bottom_category_id = ?", id)
-    if productSkip > 0 {
-        productQuery = productQuery.Offset(productSkip)
-    }
-    if productLimit > 0 {
-        productQuery = productQuery.Limit(productLimit)
-    } else {
-        productQuery = productQuery.Limit(int(totalProducts))
-    }
+	// Query bottom category with preloaded Category (no Products)
+	if err := db.DB.Preload("Category").First(&bottomCategory, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Bottom category not found",
+		})
+	}
 
-    if err := db.DB.Preload("Category").Preload("Products", func(db *gorm.DB) *gorm.DB {
-        return productQuery
-    }).First(&bottomCategory, id).Error; err != nil {
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-            "error": "Bottom category not found",
-        })
-    }
+	// Define inline response structs
+	type CategoryResp struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
 
-    // Prepare response
-    response := BottomCategoryWithProductsResponse{
-        ID:          bottomCategory.ID,
-        Name:        bottomCategory.Name,
-        Description: bottomCategory.Description,
-        Image:       bottomCategory.Image,
-        CreatedAt:   bottomCategory.CreatedAt,
-        UpdatedAt:   bottomCategory.UpdatedAt,
-        CategoryID:  bottomCategory.CategoryID,
-        Category:    bottomCategory.Category,
-        Products:    bottomCategory.Products,
-        Total:       int(totalProducts),
-        Skip:        productSkip,
-        Limit:       productLimit,
-    }
+	type BottomCategoryResp struct {
+		ID          uint         `json:"id"`
+		Name        string       `json:"name"`
+		Description string       `json:"description"`
+		Image       string       `json:"image"`
+		CreatedAt   time.Time    `json:"created_at"`
+		UpdatedAt   time.Time    `json:"updated_at"`
+		CategoryID  uint         `json:"category_id"`
+		Category    CategoryResp `json:"category"`
+		Total       int          `json:"total"`
+		Skip        int          `json:"skip"`
+		Limit       int          `json:"limit"`
+	}
 
-    return c.JSON(response)
+	// Prepare response
+	response := BottomCategoryResp{
+		ID:          bottomCategory.ID,
+		Name:        bottomCategory.Name,
+		Description: bottomCategory.Description,
+		Image:       bottomCategory.Image,
+		CreatedAt:   bottomCategory.CreatedAt,
+		UpdatedAt:   bottomCategory.UpdatedAt,
+		CategoryID:  bottomCategory.CategoryID,
+		Category: CategoryResp{
+			ID:          bottomCategory.Category.ID,
+			Name:        bottomCategory.Category.Name,
+			Description: bottomCategory.Category.Description,
+			CreatedAt:   bottomCategory.Category.CreatedAt,
+			UpdatedAt:   bottomCategory.Category.UpdatedAt,
+			Image:       bottomCategory.Category.Image,
+		},
+		Total: int(totalProducts),
+		Skip:  productSkip,
+		Limit: productLimit,
+	}
+
+	return c.JSON(response)
 }
 
 // UpdateBottomCategory
 func updateBottomCategory(c *fiber.Ctx) error {
-    id := c.Params("id")
-    bottomCategory := new(models.BottomCategory)
+	id := c.Params("id")
+	bottomCategory := new(models.BottomCategory)
 
-    if err := c.BodyParser(bottomCategory); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "error": "Failed to parse request body",
-        })
-    }
+	if err := c.BodyParser(bottomCategory); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
 
-    var existingBottomCategory models.BottomCategory
-    if err := db.DB.First(&existingBottomCategory, id).Error; err != nil {
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-            "error": "Bottom category not found",
-        })
-    }
+	var existingBottomCategory models.BottomCategory
+	if err := db.DB.First(&existingBottomCategory, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Bottom category not found",
+		})
+	}
 
-    // Ensure Products field is not modified directly through updates
-    bottomCategory.Products = nil
+	// Ensure Products field is not modified directly through updates
+	bottomCategory.Products = nil
 
-    // Validate CategoryID if provided
-    if bottomCategory.CategoryID != 0 {
-        var category models.Category
-        if err := db.DB.First(&category, bottomCategory.CategoryID).Error; err != nil {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Referenced category not found",
-            })
-        }
-    }
+	// Validate CategoryID if provided
+	if bottomCategory.CategoryID != 0 {
+		var category models.Category
+		if err := db.DB.First(&category, bottomCategory.CategoryID).Error; err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Referenced category not found",
+			})
+		}
+	}
 
-    if err := db.DB.Model(&existingBottomCategory).Updates(bottomCategory).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to update bottom category",
-        })
-    }
+	if err := db.DB.Model(&existingBottomCategory).Updates(bottomCategory).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update bottom category",
+		})
+	}
 
-    return c.JSON(fiber.Map{
-        "success": true,
-        "message": "Bottom category updated successfully",
-    })
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Bottom category updated successfully",
+	})
 }
 
 // DeleteBottomCategory
 func deleteBottomCategory(c *fiber.Ctx) error {
-    id := c.Params("id")
+	id := c.Params("id")
 
-    // Set bottom_category_id to NULL for all products in this bottom category
-    if err := db.DB.Model(&models.Product{}).Where("bottom_category_id = ?", id).Update("bottom_category_id", nil).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to update products",
-        })
-    }
+	// Set bottom_category_id to NULL for all products in this bottom category
+	if err := db.DB.Model(&models.Product{}).Where("bottom_category_id = ?", id).Update("bottom_category_id", nil).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update products",
+		})
+	}
 
-    // Delete the bottom category
-    if err := db.DB.Delete(&models.BottomCategory{}, id).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to delete bottom category",
-        })
-    }
+	// Delete the bottom category
+	if err := db.DB.Delete(&models.BottomCategory{}, id).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to delete bottom category",
+		})
+	}
 
-    return c.JSON(fiber.Map{
-        "success": true,
-        "message": "Bottom category deleted successfully",
-    })
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Bottom category deleted successfully",
+	})
 }
 
 func createCategory(c *fiber.Ctx) error {
@@ -1530,180 +1753,248 @@ func createCategory(c *fiber.Ctx) error {
 }
 
 func getAllCategories(c *fiber.Ctx) error {
-    var total int64
-    var categories []models.Category
+	var total int64
+	var categories []models.Category
 
-    // Get query parameters with error handling
-    limitStr := c.Query("limit")
-    skipStr := c.Query("skip")
+	type BottomCategoryResponse struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
 
-    var limit, skip int
+	type CategoryResponse struct {
+		Categories []struct {
+			ID               uint                     `json:"id"`
+			Name             string                   `json:"name"`
+			Description      string                   `json:"description"`
+			Image            string                   `json:"image"`
+			CreatedAt        time.Time                `json:"created_at"`
+			UpdatedAt        time.Time                `json:"updated_at"`
+			BottomCategories []BottomCategoryResponse `json:"bottom_categories"`
+		} `json:"categories"`
+		Total int `json:"total"`
+		Skip  int `json:"skip"`
+		Limit int `json:"limit"`
+	}
 
-    // Default values (no limit or skip unless specified)
-    limit = -1 // Use -1 to indicate no limit
-    skip = 0   // Default skip to 0
+	// Get query parameters with error handling
+	limitStr := c.Query("limit")
+	skipStr := c.Query("skip")
 
-    // Parse limit if it exists
-    if limitStr != "" {
-        limit = c.QueryInt("limit", 0)
-        if limit < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid limit parameter",
-            })
-        }
-    }
+	var limit, skip int
+	limit = -1 // Use -1 to indicate no limit
+	skip = 0   // Default skip to 0
 
-    // Parse skip if it exists
-    if skipStr != "" {
-        skip = c.QueryInt("skip", 0)
-        if skip < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid skip parameter",
-            })
-        }
-    }
+	if limitStr != "" {
+		limit = c.QueryInt("limit", 0)
+		if limit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid limit parameter",
+			})
+		}
+	}
 
-    // Count total categories
-    if err := db.DB.Model(&models.Category{}).Count(&total).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to count categories",
-        })
-    }
+	if skipStr != "" {
+		skip = c.QueryInt("skip", 0)
+		if skip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid skip parameter",
+			})
+		}
+	}
 
-    // Query with pagination and preload BottomCategories with their Products
-    dbQuery := db.DB.Preload("BottomCategories.Products")
-    if skip > 0 {
-        dbQuery = dbQuery.Offset(skip)
-    }
-    if limit > 0 {
-        dbQuery = dbQuery.Limit(limit)
-    } else {
-        dbQuery = dbQuery.Limit(int(total)) // Fetch all after skip
-    }
+	// Count total categories
+	if err := db.DB.Model(&models.Category{}).Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count categories",
+		})
+	}
 
-    if err := dbQuery.Find(&categories).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to get categories",
-        })
-    }
+	// Query with pagination and preload BottomCategories (without Products)
+	dbQuery := db.DB.Preload("BottomCategories")
+	if skip > 0 {
+		dbQuery = dbQuery.Offset(skip)
+	}
+	if limit > 0 {
+		dbQuery = dbQuery.Limit(limit)
+	} else {
+		dbQuery = dbQuery.Limit(int(total))
+	}
 
-    // Prepare response
-    response := CategoryResponse{
-        Categories: make([]struct {
-            ID             uint                   `json:"id"`
-            Name           string                 `json:"name"`
-            Description    string                 `json:"description"`
-            Image          string                 `json:"image"`
-            CreatedAt      time.Time              `json:"created_at"`
-            UpdatedAt      time.Time              `json:"updated_at"`
-            BottomCategories []models.BottomCategory `json:"bottom_categories"`
-        }, len(categories)),
-        Total: int(total),
-        Skip:  skip,
-        Limit: limit,
-    }
+	if err := dbQuery.Find(&categories).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get categories",
+		})
+	}
 
-    // Map categories to response structure
-    for i, category := range categories {
-        response.Categories[i] = struct {
-            ID             uint                   `json:"id"`
-            Name           string                 `json:"name"`
-            Description    string                 `json:"description"`
-            Image          string                 `json:"image"`
-            CreatedAt      time.Time              `json:"created_at"`
-            UpdatedAt      time.Time              `json:"updated_at"`
-            BottomCategories []models.BottomCategory `json:"bottom_categories"`
-        }{
-            ID:             category.ID,
-            Name:           category.Name,
-            Description:    category.Description,
-            Image:          category.Image,
-            CreatedAt:      category.CreatedAt,
-            UpdatedAt:      category.UpdatedAt,
-            BottomCategories: category.BottomCategories,
-        }
-    }
+	// Prepare response
+	response := CategoryResponse{
+		Categories: make([]struct {
+			ID               uint                     `json:"id"`
+			Name             string                   `json:"name"`
+			Description      string                   `json:"description"`
+			Image            string                   `json:"image"`
+			CreatedAt        time.Time                `json:"created_at"`
+			UpdatedAt        time.Time                `json:"updated_at"`
+			BottomCategories []BottomCategoryResponse `json:"bottom_categories"`
+		}, 0, len(categories)), // Initialize with 0 length and capacity of len(categories)
+		Total: int(total),
+		Skip:  skip,
+		Limit: limit,
+	}
 
-    return c.JSON(response)
+	// Map categories to response structure
+	for _, category := range categories {
+		// Create bottom categories slice
+		bottomCats := make([]BottomCategoryResponse, len(category.BottomCategories))
+		for j, bc := range category.BottomCategories {
+			bottomCats[j] = BottomCategoryResponse{
+				ID:          bc.ID,
+				Name:        bc.Name,
+				Description: bc.Description,
+				CreatedAt:   bc.CreatedAt,
+				UpdatedAt:   bc.UpdatedAt,
+				Image:       bc.Image,
+			}
+		}
+
+		// Append category to response
+		response.Categories = append(response.Categories, struct {
+			ID               uint                     `json:"id"`
+			Name             string                   `json:"name"`
+			Description      string                   `json:"description"`
+			Image            string                   `json:"image"`
+			CreatedAt        time.Time                `json:"created_at"`
+			UpdatedAt        time.Time                `json:"updated_at"`
+			BottomCategories []BottomCategoryResponse `json:"bottom_categories"`
+		}{
+			ID:               category.ID,
+			Name:             category.Name,
+			Description:      category.Description,
+			Image:            category.Image,
+			CreatedAt:        category.CreatedAt,
+			UpdatedAt:        category.UpdatedAt,
+			BottomCategories: bottomCats,
+		})
+	}
+
+	return c.JSON(response)
 }
 
 // GetCategory
 func getCategory(c *fiber.Ctx) error {
-    id := c.Params("id")
-    var category models.Category
-    var totalBottomCategories int64
+	id := c.Params("id")
+	var category models.Category
+	var totalBottomCategories int64
 
-    // Get query parameters for bottom category pagination
-    bottomCategoryLimitStr := c.Query("bottom_category_limit")
-    bottomCategorySkipStr := c.Query("bottom_category_skip")
+	type BottomCategoryResponse struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Image       string    `json:"image"`
+	}
+	
+	type CategoryWithBottomCategoriesResponse struct {
+		ID               uint                    `json:"id"`
+		Name             string                  `json:"name"`
+		Description      string                  `json:"description"`
+		Image            string                  `json:"image"`
+		CreatedAt        time.Time               `json:"created_at"`
+		UpdatedAt        time.Time               `json:"updated_at"`
+		BottomCategories []BottomCategoryResponse `json:"bottom_categories"`
+		Total            int                     `json:"total"`
+		Skip             int                     `json:"skip"`
+		Limit            int                     `json:"limit"`
+	}
 
-    var bottomCategoryLimit, bottomCategorySkip int
+	// Get query parameters for bottom category pagination
+	bottomCategoryLimitStr := c.Query("bottom_category_limit")
+	bottomCategorySkipStr := c.Query("bottom_category_skip")
 
-    // Default values for bottom category pagination
-    bottomCategoryLimit = -1 // No limit unless specified
-    bottomCategorySkip = 0   // Default skip to 0
+	var bottomCategoryLimit, bottomCategorySkip int
+	bottomCategoryLimit = -1 // No limit unless specified
+	bottomCategorySkip = 0   // Default skip to 0
 
-    // Parse bottom category limit
-    if bottomCategoryLimitStr != "" {
-        bottomCategoryLimit = c.QueryInt("bottom_category_limit", 0)
-        if bottomCategoryLimit < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid bottom_category_limit parameter",
-            })
-        }
-    }
+	// Parse bottom category limit
+	if bottomCategoryLimitStr != "" {
+		bottomCategoryLimit = c.QueryInt("bottom_category_limit", 0)
+		if bottomCategoryLimit < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid bottom_category_limit parameter",
+			})
+		}
+	}
 
-    // Parse bottom category skip
-    if bottomCategorySkipStr != "" {
-        bottomCategorySkip = c.QueryInt("bottom_category_skip", 0)
-        if bottomCategorySkip < 0 {
-            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-                "error": "Invalid bottom_category_skip parameter",
-            })
-        }
-    }
+	// Parse bottom category skip
+	if bottomCategorySkipStr != "" {
+		bottomCategorySkip = c.QueryInt("bottom_category_skip", 0)
+		if bottomCategorySkip < 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid bottom_category_skip parameter",
+			})
+		}
+	}
 
-    // Count total bottom categories for this category
-    if err := db.DB.Model(&models.BottomCategory{}).Where("category_id = ?", id).Count(&totalBottomCategories).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to count bottom categories",
-        })
-    }
+	// Count total bottom categories for this category
+	if err := db.DB.Model(&models.BottomCategory{}).Where("category_id = ?", id).Count(&totalBottomCategories).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count bottom categories",
+		})
+	}
 
-    // Query category with paginated bottom categories and their products
-    bottomCategoryQuery := db.DB.Model(&models.BottomCategory{}).Where("category_id = ?", id).Preload("Products")
-    if bottomCategorySkip > 0 {
-        bottomCategoryQuery = bottomCategoryQuery.Offset(bottomCategorySkip)
-    }
-    if bottomCategoryLimit > 0 {
-        bottomCategoryQuery = bottomCategoryQuery.Limit(bottomCategoryLimit)
-    } else {
-        bottomCategoryQuery = bottomCategoryQuery.Limit(int(totalBottomCategories)) // Fetch all if no limit
-    }
+	// Query category with paginated bottom categories (without products)
+	bottomCategoryQuery := db.DB.Model(&models.BottomCategory{}).Where("category_id = ?", id)
+	if bottomCategorySkip > 0 {
+		bottomCategoryQuery = bottomCategoryQuery.Offset(bottomCategorySkip)
+	}
+	if bottomCategoryLimit > 0 {
+		bottomCategoryQuery = bottomCategoryQuery.Limit(bottomCategoryLimit)
+	} else {
+		bottomCategoryQuery = bottomCategoryQuery.Limit(int(totalBottomCategories))
+	}
 
-    if err := db.DB.Preload("BottomCategories", func(db *gorm.DB) *gorm.DB {
-        return bottomCategoryQuery
-    }).First(&category, id).Error; err != nil {
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-            "error": "Category not found",
-        })
-    }
+	// Fix variable name typos and remove Products preload
+	if err := db.DB.Preload("BottomCategories", func(db *gorm.DB) *gorm.DB {
+		return bottomCategoryQuery
+	}).First(&category, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Category not found",
+		})
+	}
 
-    // Prepare response
-    response := CategoryWithBottomCategoriesResponse{
-        ID:             category.ID,
-        Name:           category.Name,
-        Description:    category.Description,
-        Image:          category.Image,
-        CreatedAt:      category.CreatedAt,
-        UpdatedAt:      category.UpdatedAt,
-        BottomCategories: category.BottomCategories,
-        Total:          int(totalBottomCategories),
-        Skip:           bottomCategorySkip,
-        Limit:          bottomCategoryLimit,
-    }
+	// Prepare bottom categories response
+	bottomCategories := make([]BottomCategoryResponse, len(category.BottomCategories))
+	for i, bc := range category.BottomCategories {
+		bottomCategories[i] = BottomCategoryResponse{
+			ID:          bc.ID,
+			Name:        bc.Name,
+			Description: bc.Description,
+			CreatedAt:   bc.CreatedAt,
+			UpdatedAt:   bc.UpdatedAt,
+			Image:       bc.Image,
+		}
+	}
 
-    return c.JSON(response)
+	// Prepare response
+	response := CategoryWithBottomCategoriesResponse{
+		ID:               category.ID,
+		Name:             category.Name,
+		Description:      category.Description,
+		Image:            category.Image,
+		CreatedAt:        category.CreatedAt,
+		UpdatedAt:        category.UpdatedAt,
+		BottomCategories: bottomCategories,
+		Total:            int(totalBottomCategories),
+		Skip:             bottomCategorySkip,
+		Limit:            bottomCategoryLimit,
+	}
+
+	return c.JSON(response)
 }
 
 // UpdateCategory
@@ -1780,165 +2071,148 @@ func createBrand(c *fiber.Ctx) error {
 }
 
 func getAllBrands(c *fiber.Ctx) error {
-	var total int64
-	var brands []models.Brand
+    var total int64
+    var brands []models.Brand
 
-	// Get query parameters for brand pagination only
-	limitStr := c.Query("limit")
-	skipStr := c.Query("skip")
+    // Get query parameters for brand pagination only
+    limitStr := c.Query("limit")
+    skipStr := c.Query("skip")
 
-	var limit, skip int
+    var limit, skip int
+    limit = -1 // No limit unless specified
+    skip = 0   // Default skip to 0
 
-	// Default values for brand pagination
-	limit = -1 // No limit unless specified
-	skip = 0   // Default skip to 0
+    // Parse brand limit
+    if limitStr != "" {
+        limit = c.QueryInt("limit", 0)
+        if limit < 0 {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+                "error": "Invalid limit parameter",
+            })
+        }
+    }
 
-	// Parse brand limit
-	if limitStr != "" {
-		limit = c.QueryInt("limit", 0)
-		if limit < 0 {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Invalid limit parameter",
-			})
-		}
-	}
+    // Parse brand skip
+    if skipStr != "" {
+        skip = c.QueryInt("skip", 0)
+        if skip < 0 {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+                "error": "Invalid skip parameter",
+            })
+        }
+    }
 
-	// Parse brand skip
-	if skipStr != "" {
-		skip = c.QueryInt("skip", 0)
-		if skip < 0 {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Invalid skip parameter",
-			})
-		}
-	}
+    // Count total brands
+    if err := db.DB.Model(&models.Brand{}).Count(&total).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to count brands",
+        })
+    }
 
-	// Count total brands
-	if err := db.DB.Model(&models.Brand{}).Count(&total).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to count brands",
-		})
-	}
+    // Query brands with pagination (no products)
+    dbQuery := db.DB
+    if skip > 0 {
+        dbQuery = dbQuery.Offset(skip)
+    }
+    if limit > 0 {
+        dbQuery = dbQuery.Limit(limit)
+    } else {
+        dbQuery = dbQuery.Limit(int(total))
+    }
 
-	// Query brands with pagination (only for brands)
-	dbQuery := db.DB.Preload("Products") // Fetch all products without pagination
-	if skip > 0 {
-		dbQuery = dbQuery.Offset(skip)
-	}
-	if limit > 0 {
-		dbQuery = dbQuery.Limit(limit)
-	} else {
-		dbQuery = dbQuery.Limit(int(total)) // Fetch all brands after skip
-	}
+    if err := dbQuery.Find(&brands).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to get brands",
+        })
+    }
 
-	if err := dbQuery.Find(&brands).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to get brands",
-		})
-	}
+    // Prepare response
+    response := BrandListResponse{
+        Brands: make([]BrandResponse, len(brands)),
+        Total:  int(total),
+        Skip:   skip,
+        Limit:  limit,
+    }
 
-	// Prepare response
-	response := BrandListResponse{
-		Brands: make([]BrandWithProducts, len(brands)),
-		Total:  int(total),
-		Skip:   skip,
-		Limit:  limit,
-	}
+    // Map brands to response structure
+    for i, brand := range brands {
+        response.Brands[i] = BrandResponse{
+            ID:          brand.ID,
+            Name:        brand.Name,
+            Country:     brand.Country,
+            Description: brand.Description,
+            Image:       brand.Image,
+            CreatedAt:   brand.CreatedAt,
+            UpdatedAt:   brand.UpdatedAt,
+        }
+    }
 
-	// Map brands to response structure
-	for i, brand := range brands {
-		response.Brands[i] = BrandWithProducts{
-			ID:          brand.ID,
-			Name:        brand.Name,
-			Country:     brand.Country,
-			Description: brand.Description,
-			Image:       brand.Image,
-			CreatedAt:   brand.CreatedAt,
-			UpdatedAt:   brand.UpdatedAt,
-			Products:    brand.Products, // All products for this brand
-		}
-	}
-
-	return c.JSON(response)
+    return c.JSON(response)
 }
 
+
 func getBrand(c *fiber.Ctx) error {
-	id := c.Params("id")
-	var brand models.Brand
-	var totalProducts int64
+    id := c.Params("id")
+    var brand models.Brand
+    var totalProducts int64
 
-	// Get query parameters for product pagination
-	productLimitStr := c.Query("product_limit")
-	productSkipStr := c.Query("product_skip")
+    // Get query parameters for product pagination (just for counting)
+    productLimitStr := c.Query("product_limit")
+    productSkipStr := c.Query("product_skip")
 
-	var productLimit, productSkip int
+    var productLimit, productSkip int
+    productLimit = -1 // No limit unless specified
+    productSkip = 0   // Default skip to 0
 
-	// Default values for product pagination
-	productLimit = -1 // No limit unless specified
-	productSkip = 0   // Default skip to 0
+    // Parse product limit
+    if productLimitStr != "" {
+        productLimit = c.QueryInt("product_limit", 0)
+        if productLimit < 0 {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+                "error": "Invalid product_limit parameter",
+            })
+        }
+    }
 
-	// Parse product limit
-	if productLimitStr != "" {
-		productLimit = c.QueryInt("product_limit", 0)
-		if productLimit < 0 {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Invalid product_limit parameter",
-			})
-		}
-	}
+    // Parse product skip
+    if productSkipStr != "" {
+        productSkip = c.QueryInt("product_skip", 0)
+        if productSkip < 0 {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+                "error": "Invalid product_skip parameter",
+            })
+        }
+    }
 
-	// Parse product skip
-	if productSkipStr != "" {
-		productSkip = c.QueryInt("product_skip", 0)
-		if productSkip < 0 {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Invalid product_skip parameter",
-			})
-		}
-	}
+    // Count total products for this brand
+    if err := db.DB.Model(&models.Product{}).Where("brand_id = ?", id).Count(&totalProducts).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to count products",
+        })
+    }
 
-	// Count total products for this brand
-	if err := db.DB.Model(&models.Product{}).Where("brand_id = ?", id).Count(&totalProducts).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to count products",
-		})
-	}
+    // Query brand without products
+    if err := db.DB.First(&brand, id).Error; err != nil {
+        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+            "error": "Brand not found",
+        })
+    }
 
-	// Query brand with paginated products
-	productQuery := db.DB.Model(&models.Product{}).Where("brand_id = ?", id)
-	if productSkip > 0 {
-		productQuery = productQuery.Offset(productSkip)
-	}
-	if productLimit > 0 {
-		productQuery = productQuery.Limit(productLimit)
-	} else {
-		productQuery = productQuery.Limit(int(totalProducts)) // Fetch all if no limit
-	}
+    // Prepare response
+    response := BrandWithProductsResponse{
+        ID:          brand.ID,
+        Name:        brand.Name,
+        Country:     brand.Country,
+        Description: brand.Description,
+        Image:       brand.Image,
+        CreatedAt:   brand.CreatedAt,
+        UpdatedAt:   brand.UpdatedAt,
+        Total:       int(totalProducts),
+        Skip:        productSkip,
+        Limit:       productLimit,
+    }
 
-	if err := db.DB.Preload("Products", func(db *gorm.DB) *gorm.DB {
-		return productQuery
-	}).First(&brand, id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Brand not found",
-		})
-	}
-
-	// Prepare response
-	response := BrandWithProductsResponse{
-		ID:          brand.ID,
-		Name:        brand.Name,
-		Country:     brand.Country,
-		Description: brand.Description,
-		Image:       brand.Image,
-		CreatedAt:   brand.CreatedAt,
-		UpdatedAt:   brand.UpdatedAt,
-		Total:       int(totalProducts),
-		Skip:        productSkip,
-		Limit:       productLimit,
-		Products:    brand.Products,
-	}
-
-	return c.JSON(response)
+    return c.JSON(response)
 }
 
 func updateBrand(c *fiber.Ctx) error {
