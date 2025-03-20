@@ -966,72 +966,95 @@ func createProduct(c *fiber.Ctx) error {
 }
 
 func searchProducts(c *fiber.Ctx) error {
-	query := c.Query("q")
-	if query == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Query parameter 'q' is required",
-		})
-	}
+    query := c.Query("q")
+    if query == "" {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "Query parameter 'q' is required",
+        })
+    }
 
-	var products []models.Product
+    var products []models.Product
 
-	// Step 1: Search by Product Name
-	if err := db.DB.Preload("Category").Preload("Brand").
-		Where("name LIKE ?", "%"+query+"%").Find(&products).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to search products",
-		})
-	}
+    // Step 1: Search by Product Name
+    if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+        Where("name LIKE ?", "%"+query+"%").Find(&products).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to search products",
+        })
+    }
 
-	// If products are found by name, return them
-	if len(products) > 0 {
-		return c.JSON(SearchResponse{Products: products})
-	}
+    // If products are found by name, return them
+    if len(products) > 0 {
+        return c.JSON(SearchResponse{Products: products})
+    }
 
-	// Step 2: Search by Category Name
-	var categoryIDs []uint
-	if err := db.DB.Model(&models.Category{}).
-		Where("name LIKE ?", "%"+query+"%").
-		Pluck("id", &categoryIDs).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to search categories",
-		})
-	}
+    // Step 2: Search by Category Name
+    var categoryIDs []uint
+    if err := db.DB.Model(&models.Category{}).
+        Where("name LIKE ?", "%"+query+"%").
+        Pluck("id", &categoryIDs).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to search categories",
+        })
+    }
 
-	if len(categoryIDs) > 0 {
-		if err := db.DB.Preload("Category").Preload("Brand").
-			Where("category_id IN ?", categoryIDs).Find(&products).Error; err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Failed to get products by category",
-			})
-		}
-		// If products are found by category, return them
-		if len(products) > 0 {
-			return c.JSON(SearchResponse{Products: products})
-		}
-	}
+    if len(categoryIDs) > 0 {
+        if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+            Where("category_id IN ?", categoryIDs).Find(&products).Error; err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "error": "Failed to get products by category",
+            })
+        }
+        // If products are found by category, return them
+        if len(products) > 0 {
+            return c.JSON(SearchResponse{Products: products})
+        }
+    }
 
-	// Step 3: Search by Brand Name
-	var brandIDs []uint
-	if err := db.DB.Model(&models.Brand{}).
-		Where("name LIKE ?", "%"+query+"%").
-		Pluck("id", &brandIDs).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to search brands",
-		})
-	}
+    // Step 3: Search by Bottom Category Name
+    var bottomCategoryIDs []uint
+    if err := db.DB.Model(&models.BottomCategory{}). // Assuming BottomCategory is your model name
+        Where("name LIKE ?", "%"+query+"%").
+        Pluck("id", &bottomCategoryIDs).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to search bottom categories",
+        })
+    }
 
-	if len(brandIDs) > 0 {
-		if err := db.DB.Preload("Category").Preload("Brand").
-			Where("brand_id IN ?", brandIDs).Find(&products).Error; err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Failed to get products by brand",
-			})
-		}
-	}
+    if len(bottomCategoryIDs) > 0 {
+        if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+            Where("bottom_category_id IN ?", bottomCategoryIDs).Find(&products).Error; err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "error": "Failed to get products by bottom category",
+            })
+        }
+        // If products are found by bottom category, return them
+        if len(products) > 0 {
+            return c.JSON(SearchResponse{Products: products})
+        }
+    }
 
-	// Return the products (could be empty if no matches found)
-	return c.JSON(SearchResponse{Products: products})
+    // Step 4: Search by Brand Name
+    var brandIDs []uint
+    if err := db.DB.Model(&models.Brand{}).
+        Where("name LIKE ?", "%"+query+"%").
+        Pluck("id", &brandIDs).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to search brands",
+        })
+    }
+
+    if len(brandIDs) > 0 {
+        if err := db.DB.Preload("Category").Preload("Brand").Preload("BottomCategory").
+            Where("brand_id IN ?", brandIDs).Find(&products).Error; err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "error": "Failed to get products by brand",
+            })
+        }
+    }
+
+    // Return the products (could be empty if no matches found)
+    return c.JSON(SearchResponse{Products: products})
 }
 
 // GetAllProducts
@@ -1139,71 +1162,63 @@ func getProduct(c *fiber.Ctx) error {
 // UpdateProduct
 
 func updateProduct(c *fiber.Ctx) error {
-	id := c.Params("id")
-	product := new(models.Product)
+    id := c.Params("id")
+    product := new(models.Product)
 
-	// Parse the incoming request body
-	if err := c.BodyParser(product); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Failed to parse request body",
-		})
-	}
+    // Parse the incoming request body
+    if err := c.BodyParser(product); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "Failed to parse request body",
+        })
+    }
 
-	// Fetch the existing product from database
-	var existingProduct models.Product
-	if err := db.DB.First(&existingProduct, id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Product not found",
-		})
-	}
+    // Fetch the existing product from database
+    var existingProduct models.Product
+    if err := db.DB.First(&existingProduct, id).Error; err != nil {
+        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+            "error": "Product not found",
+        })
+    }
 
-	// Validate CategoryID if provided
-	if product.CategoryID != 0 {
-		var category Category
-		if err := db.DB.First(&category, product.CategoryID).Error; err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Category not found",
-			})
-		}
-	}
+    // Validate BottomCategoryID if provided
+    if product.BottomCategoryID != 0 {
+        var bottomCategory models.BottomCategory // Use your actual BottomCategory model
+        if err := db.DB.First(&bottomCategory, product.BottomCategoryID).Error; err != nil {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+                "error": "Bottom category not found",
+            })
+        }
+    }
 
-	// Validate BrandID if provided
-	if product.BrandID != 0 {
-		var brand Brand
-		if err := db.DB.First(&brand, product.BrandID).Error; err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Brand not found",
-			})
-		}
-	}
+    // Create update struct with allowed fields from request
+    updateData := models.Product{
+        Name:            product.Name,
+        Quantity:        product.Quantity,
+        CategoryID:      product.CategoryID,
+        BrandID:         product.BrandID,
+        Price:           product.Price,
+        Rating:          product.Rating,
+        Description:     product.Description,
+        Images:          product.Images,
+        Info:            product.Info,
+        Feature:         product.Feature,
+        Guarantee:       product.Guarantee,
+        Discount:        product.Discount,
+        BottomCategoryID: product.BottomCategoryID,
+    }
 
-	// Create update struct with allowed fields from request
-	updateData := models.Product{
-		Name:        product.Name,        // Updatable
-		Quantity:    product.Quantity,    // Updatable
-		CategoryID:  product.CategoryID,  // Updatable
-		BrandID:     product.BrandID,     // Now updatable from request
-		Price:       product.Price,       // Now updatable from request
-		Rating:      product.Rating,      // Updatable
-		Description: product.Description, // Updatable
-		Images:      product.Images,      // Updatable
-		Info:        product.Info,        // Updatable
-		Feature:     product.Feature,     // Updatable
-		Guarantee:   product.Guarantee,   // Updatable
-		Discount:    product.Discount,    // Updatable
-	}
+    // Perform the update
+    if err := db.DB.Model(&existingProduct).Updates(updateData).Error; err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to update product",
+        })
+    }
 
-	// Perform the update
-	if err := db.DB.Model(&existingProduct).Updates(updateData).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to update product",
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"success": true,
-		"message": "Product updated successfully",
-	})
+    // Return the updated product
+    return c.JSON(fiber.Map{
+        "success": true,
+        "message": "Product updated successfully",
+    })
 }
 
 // DeleteProduct
