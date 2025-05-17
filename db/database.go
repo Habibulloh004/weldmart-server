@@ -47,5 +47,19 @@ func InitDatabase() {
 		&models.User{}, &models.Product{}, &models.Category{}, &models.Brand{},
 		&models.Banner{}, &models.News{}, &models.Achievement{}, &models.Rassika{},
 		&models.Order{}, &models.OrderItem{}, &models.HRassika{}, &models.Statistics{}, &models.Admin{}, &models.Clients{},
+		&models.PriceSwitch{},
 	)
+
+	// Check if PriceSwitch exists, if not create it
+	var priceSwitch models.PriceSwitch
+	result := DB.First(&priceSwitch)
+	if result.Error != nil {
+		// PriceSwitch doesn't exist, create it
+		priceSwitch = models.PriceSwitch{
+			ID:   1,
+			Show: true, // Default value is to show prices
+		}
+		DB.Create(&priceSwitch)
+		log.Println("PriceSwitch created with default value: Show = true")
+	}
 }

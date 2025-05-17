@@ -279,6 +279,11 @@ func SetupRoutes(app *fiber.App) {
 	admin.Post("/", createAdmin)
 	admin.Put("/", updateAdmin)
 	admin.Get("/", getAdmin)
+	
+
+	priceSwitch := api.Group("/price-switch")
+    priceSwitch.Get("/", getPriceSwitch)
+    priceSwitch.Put("/", updatePriceSwitch)
 
 	api.Post("/login", loginHandler)
 
@@ -425,6 +430,58 @@ func uploadImage(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"filename": filename,
 		"path":     "/uploads/" + filename,
+	})
+}
+
+func getPriceSwitch(c *fiber.Ctx) error {
+	var priceSwitch models.PriceSwitch
+	
+	// Always get the record with ID 1
+	if err := db.DB.First(&priceSwitch, 1).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get price switch setting",
+		})
+	}
+
+	return c.JSON(priceSwitch)
+}
+
+// updatePriceSwitch - PUT /price-switch
+func updatePriceSwitch(c *fiber.Ctx) error {
+	var priceSwitch models.PriceSwitch
+	
+	// Always update the record with ID 1
+	if err := db.DB.First(&priceSwitch, 1).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get price switch setting",
+		})
+	}
+
+	// Parse request body
+	type UpdateRequest struct {
+		Show bool `json:"show"`
+	}
+	
+	req := new(UpdateRequest)
+	if err := c.BodyParser(req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse request body",
+		})
+	}
+
+	// Update the show value
+	priceSwitch.Show = req.Show
+	
+	if err := db.DB.Save(&priceSwitch).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update price switch setting",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Price switch updated successfully",
+		"data":    priceSwitch,
 	})
 }
 
